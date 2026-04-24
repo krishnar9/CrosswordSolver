@@ -14,9 +14,8 @@ let cursorR      = null;
 let cursorC      = null;
 
 let autosaveTimer   = null;
-let longPressTimer  = null;
 
-const RECENT_MAX  = 25;
+const RECENT_MAX  = 30;
 let recentClues   = [];   // [{dir, num, snapshot}] — most-recent first
 let autoSuggest   = false;
 
@@ -75,6 +74,12 @@ function buildLookups() {
 // ── Grid rendering ────────────────────────────────────────────────────────
 function renderGrid() {
     const { rows, cols, grid } = puzzle;
+
+    // Scale cells to fit viewport width on narrow screens (mobile portrait)
+    const availPx = window.innerWidth - 40;
+    const cellPx  = Math.max(18, Math.min(36, Math.floor(availPx / cols)));
+    document.documentElement.style.setProperty('--cell', cellPx + 'px');
+
     gridEl.style.gridTemplateColumns = `repeat(${cols}, var(--cell))`;
     gridEl.style.gridTemplateRows    = `repeat(${rows}, var(--cell))`;
     gridEl.innerHTML = '';
@@ -106,17 +111,13 @@ function renderGrid() {
                 cell.addEventListener('click', () => onCellClick(r, c));
                 cell.addEventListener('contextmenu', e => { e.preventDefault(); onCellRightClick(r, c); });
 
-                // Mobile long-press → down clue; tap → across clue
-                cell.addEventListener('touchstart', () => {
-                    longPressTimer = setTimeout(() => { longPressTimer = null; onCellRightClick(r, c); }, 500);
-                }, { passive: true });
+                // Mobile: tap toggles between across and down; no long-press needed
+                let tapMoved = false;
+                cell.addEventListener('touchstart', () => { tapMoved = false; }, { passive: true });
+                cell.addEventListener('touchmove',  () => { tapMoved = true;  }, { passive: true });
                 cell.addEventListener('touchend', e => {
-                    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; onCellClick(r, c); }
-                    e.preventDefault();
+                    if (!tapMoved) { e.preventDefault(); onCellTap(r, c); }
                 });
-                cell.addEventListener('touchmove', () => {
-                    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
-                }, { passive: true });
             }
 
             gridEl.appendChild(cell);
@@ -230,6 +231,24 @@ function onCellRightClick(r, c) {
         applyHighlights();
     } else {
         setActiveClue('down', num, r, c);
+    }
+}
+
+function onCellTap(r, c) {
+    const acrossNum = acrossMap[`${r},${c}`];
+    const downNum   = downMap[`${r},${c}`];
+    if (activeDir === 'across' && activeNum === acrossNum && acrossNum !== undefined) {
+        // Already on this across — switch to down if available, else move cursor
+        if (downNum !== undefined) setActiveClue('down', downNum, r, c);
+        else { cursorR = r; cursorC = c; applyHighlights(); }
+    } else if (activeDir === 'down' && activeNum === downNum && downNum !== undefined) {
+        // Already on this down — switch back to across if available, else move cursor
+        if (acrossNum !== undefined) setActiveClue('across', acrossNum, r, c);
+        else { cursorR = r; cursorC = c; applyHighlights(); }
+    } else if (acrossNum !== undefined) {
+        setActiveClue('across', acrossNum, r, c);
+    } else if (downNum !== undefined) {
+        setActiveClue('down', downNum, r, c);
     }
 }
 
@@ -446,6 +465,9 @@ document.getElementById('btn-exit').addEventListener('click', async () => {
     await doAutosave();
     location.href = BASE + '/';
 });
+
+// ── Next (mobile tab equivalent) ──────────────────────────────────────────
+document.getElementById('btn-next').addEventListener('click', () => navigateClue(1));
 
 // ── Autosave ──────────────────────────────────────────────────────────────
 function startAutosave(intervalSecs) {
