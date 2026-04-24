@@ -10,9 +10,11 @@ A browser-based crossword puzzle solver. The user uploads a PDF of a crossword p
 
 - **Frontend**: Static HTML/CSS/JavaScript
 - **Backend**: Python, FastAPI, Uvicorn
-- **Reverse proxy**: Nginx (proxies API requests to FastAPI, deployed under `/crossword/` path prefix on port 80)
-- **Database**: SQLite3 (single file, accessed by the backend)
-- **LLM**: Locally-running Ollama instance hosting a fine-tuned Qwen model
+- **Container**: Docker (single container, bind-mounted volumes for database and uploads)
+- **Reverse proxy**: Nginx on the Hetzner VM, proxying to the Docker container on `127.0.0.1:8000`
+- **Edge**: Cloudflare (DNS proxy, TLS termination, DDoS protection)
+- **Database**: SQLite3 (single file, persisted via Docker bind mount at `./data/puzzle.db`)
+- **LLM**: Fine-tuned Qwen 3 4B model running on the developer's machine via Ollama, exposed to the production app through a Cloudflare Tunnel protected by Cloudflare Access
 
 ---
 
@@ -224,20 +226,38 @@ The Solve page automatically syncs the current grid state to the session record 
 ### Production architecture
 
 ```
-Browser ──HTTPS──▶ Cloudflare edge (TLS termination)
+Browser ──HTTPS──▶ Cloudflare edge (TLS termination, DDoS protection)
                         │
-                   A record: crossword.notnoise.us → Hetzner VM
-                        │
-                   Hetzner VM: nginx (port 80, Cloudflare origin cert)
-                        │
-                   Docker container: uvicorn on 127.0.0.1:8000
+                   A record: crossword.notnoise.us → Hetzner CX22, Nuremberg
+                        │ (HTTPS on port 443, Cloudflare origin cert)
+                   nginx on Hetzner VM
+                        │ (HTTP to 127.0.0.1:8000)
+                   Docker container (uvicorn)
+                        │ (OLLAMA_ENDPOINT + CF Access headers)
+                   Cloudflare Tunnel ──▶ Ollama on developer's machine (GPU)
 ```
 
-**Ollama** runs on the developer's machine and is exposed to the Hetzner app via a Cloudflare Tunnel. The tunnel endpoint (`ollama.notnoise.us`) is protected by a Cloudflare Access service token; the app sends the token as HTTP headers with every Ollama request (`CF-Access-Client-Id`, `CF-Access-Client-Secret`).
+**Five components must be running** for the app to be fully functional:
 
-The app runs at the root of `crossword.notnoise.us` — no path prefix. Uvicorn is started with `--proxy-headers --forwarded-allow-ips 127.0.0.1` so that OAuth redirect URIs are built correctly from the `X-Forwarded-Proto: https` header set by nginx.
+| Component | Location | Kept alive by |
+|---|---|---|
+| Hetzner VM (nginx + Docker app) | Hetzner cloud | `restart: unless-stopped` + nginx systemd |
+| Cloudflare | Cloudflare edge | Managed service |
+| Google OAuth | Google Cloud | Managed service |
+| Ollama | Developer's machine | `ollama` systemd service |
+| cloudflared tunnel | Developer's machine | `cloudflared` systemd service |
 
-The Google OAuth authorized redirect URI must be registered as `https://crossword.notnoise.us/auth/callback`.
+If the developer's machine is off, suggestions are unavailable but the rest of the app (login, upload, solve, autosave) continues working.
+
+**Ollama** runs on the developer's GPU machine and is exposed via a Cloudflare Tunnel (`ollama.notnoise.us`). The tunnel is protected by a Cloudflare Access service token (Service Auth policy); the app sends `CF-Access-Client-Id` and `CF-Access-Client-Secret` headers with every Ollama request. The cloudflared config rewrites the `Host` header to `localhost` before forwarding to Ollama — required because Ollama's DNS rebinding protection rejects requests with non-localhost `Host` headers.
+
+The app runs at the root of `crossword.notnoise.us` with no path prefix. Uvicorn is started with `--proxy-headers --forwarded-allow-ips *` so that OAuth redirect URIs are built as `https://` from the `X-Forwarded-Proto` header set by nginx. The wildcard is safe because port 8000 is bound to `127.0.0.1` on the host — only nginx can reach it. Note: `127.0.0.1` alone is insufficient because Docker proxies requests through the bridge gateway (`172.17.0.1`), not localhost.
+
+Nginx listens on **port 443** with a Cloudflare origin certificate. Cloudflare SSL/TLS mode is set to **Full (strict)**, which means Cloudflare connects to the origin on port 443 and validates the certificate.
+
+The Google OAuth app remains in **Testing** status in Google Cloud Console. All permitted users must be added as test users there in addition to appearing in `ALLOWED_EMAILS`. This is sufficient for a private allowlisted app — Google's app verification process is not required.
+
+The Google OAuth authorized redirect URI is `https://crossword.notnoise.us/auth/callback`.
 
 ### Local development
 

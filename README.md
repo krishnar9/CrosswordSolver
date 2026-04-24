@@ -63,23 +63,39 @@ App is available at `http://127.0.0.1:8002`.
 
 ## Production Deployment
 
-### Architecture overview
+### Architecture
 
 ```
-Browser ──HTTPS──▶ Cloudflare edge
-                        │ (proxied A record: crossword.notnoise.us → Hetzner VM IP)
-                   nginx on Hetzner VM (port 80, Cloudflare origin cert)
+Browser ──HTTPS──▶ Cloudflare edge (TLS termination, DDoS protection)
                         │
-                   Docker container (uvicorn on 127.0.0.1:8000)
-                        │ (OLLAMA_ENDPOINT env var)
-                   Cloudflare Tunnel ──▶ Ollama on dev machine
+                   A record: crossword.notnoise.us → Hetzner CX22, Nuremberg
+                        │ (HTTPS on port 443, Cloudflare origin cert)
+                   nginx on Hetzner VM
+                        │ (HTTP to 127.0.0.1:8000)
+                   Docker container (uvicorn)
+                        │ (OLLAMA_ENDPOINT + CF Access headers)
+                   Cloudflare Tunnel ──▶ Ollama on developer's machine (GPU)
 ```
+
+### Runtime dependencies
+
+All five components must be running for the app to be fully functional:
+
+| Component | Location | Kept alive by |
+|---|---|---|
+| Hetzner VM (nginx + Docker app) | Hetzner cloud | `restart: unless-stopped`, nginx systemd |
+| Cloudflare | Cloudflare edge | Managed service |
+| Google OAuth | Google Cloud | Managed service |
+| Ollama | Developer's machine | `ollama` systemd service |
+| cloudflared tunnel | Developer's machine | `cloudflared` systemd service |
+
+If the developer's machine is off, suggestions are unavailable but the rest of the app (login, upload, solve, autosave) continues working.
 
 ---
 
-### Phase 1 — Cloudflare Tunnel for Ollama (dev machine)
+### Phase 1 — Cloudflare Tunnel for Ollama (developer's machine)
 
-This exposes your local Ollama instance to the Hetzner app without opening any ports on your router.
+This exposes the local Ollama instance to the Hetzner app without opening any ports on the router.
 
 **Install cloudflared:**
 
@@ -95,8 +111,8 @@ sudo dpkg -i cloudflared.deb
 **Authenticate and create the tunnel:**
 
 ```bash
-cloudflared tunnel login                     # opens browser, authorises with Cloudflare
-cloudflared tunnel create ollama             # creates tunnel, saves credentials to ~/.cloudflared/
+cloudflared tunnel login           # opens browser, authorises with Cloudflare
+cloudflared tunnel create ollama   # saves credentials to ~/.cloudflared/<tunnel-id>.json
 ```
 
 **Create the tunnel config** at `~/.cloudflared/config.yml`:
@@ -109,17 +125,25 @@ ingress:
   - hostname: ollama.notnoise.us
     service: http://localhost:11434
     originRequest:
-      httpHostHeader: "localhost"   # Ollama rejects non-localhost Host headers (DNS rebinding protection)
+      httpHostHeader: "localhost"   # required: Ollama rejects non-localhost Host headers (DNS rebinding protection)
   - service: http_status:404
 ```
 
-**Add a DNS record** in Cloudflare (this command does it automatically):
+**Add a DNS record:**
 
 ```bash
 cloudflared tunnel route dns ollama ollama.notnoise.us
 ```
 
-**Install as a systemd service** so it survives reboots:
+**Test before daemonising:**
+
+```bash
+cloudflared tunnel run ollama
+# in another terminal:
+curl -s https://ollama.notnoise.us/api/tags   # should return model list
+```
+
+**Install as a systemd service:**
 
 `cloudflared service install` runs as root and expects config in `/etc/cloudflared/`, not `~/.cloudflared/`. Copy the files there first:
 
@@ -131,59 +155,82 @@ sudo sed -i 's|/home/<user>/.cloudflared/|/etc/cloudflared/|g' /etc/cloudflared/
 cat /etc/cloudflared/config.yml   # verify credentials-file path is correct
 ```
 
-Then install and enable:
-
 ```bash
 sudo cloudflared service install
 sudo systemctl enable --now cloudflared
 systemctl status cloudflared   # should show active (running)
 ```
 
+The shell-based `cloudflared tunnel run` used for testing can now be stopped — the systemd service takes over.
+
 **Lock it down with Cloudflare Access:**
 
-1. In the Cloudflare dashboard → **Zero Trust → Access → Applications**, create a new application for `ollama.notnoise.us`.
-2. Set the policy to **Service Auth** only (no user login).
-3. Under **Service Auth**, generate a service token. Copy the **Client ID** and **Client Secret** — these go into the Hetzner app's `.env` as `OLLAMA_CF_CLIENT_ID` and `OLLAMA_CF_CLIENT_SECRET`.
+1. Cloudflare dashboard → **Zero Trust → Access → Applications → Add an application → Self-hosted**
+   - Application domain: `ollama.notnoise.us`
+2. Policy: action = **Service Auth**, rule type = **Service Token**
+3. **Zero Trust → Access → Service Auth → Service Tokens → Create service token**
+   - Name it `hetzner-crossword`
+   - Copy the **Client ID** and **Client Secret** (secret shown once only)
+
+Verify the lock is working:
+
+```bash
+# Should now return 403
+curl -s -o /dev/null -w "%{http_code}" https://ollama.notnoise.us/api/tags
+
+# Should return the model list
+curl -s \
+  -H "CF-Access-Client-Id: <client-id>" \
+  -H "CF-Access-Client-Secret: <client-secret>" \
+  https://ollama.notnoise.us/api/tags
+```
 
 ---
 
 ### Phase 2 — Hetzner VM
 
-Provision a **CX22** instance (2 vCPU, 4 GB RAM) running Ubuntu 24.04.
+Provision a **CX22** instance (2 vCPU, 4 GB RAM, ~€3.29/mo) in **Nuremberg** running **Ubuntu 24.04**.
 
-**Install Docker and nginx:**
+Hetzner bills by the hour. To "pause" the VM: snapshot (~€0.48/mo for a 40 GB disk) then delete the server. Restore by creating a new server from the snapshot.
+
+**SSH key:** add your public key in Hetzner Console → Security → SSH Keys before creating the server.
+
+**Hetzner cloud firewall** (create and apply to the server):
+
+| Direction | Protocol | Port | Source |
+|---|---|---|---|
+| Inbound | TCP | 22 | Your home IP only |
+| Inbound | TCP | 80 | Cloudflare IPv4 ranges |
+| Inbound | TCP | 443 | Cloudflare IPv4 ranges |
+
+Cloudflare's current IPv4 ranges: https://www.cloudflare.com/ips-v4
+
+**Install Docker and nginx on the VM:**
 
 ```bash
-# Docker
 curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER   # log out and back in
-
-# nginx
-sudo apt install nginx
+apt-get install -y nginx
+systemctl enable nginx docker
 ```
-
-**Configure the Hetzner cloud firewall** to allow inbound traffic on ports 80 and 443 from Cloudflare's IP ranges only. Cloudflare publishes these at https://www.cloudflare.com/ips/. Block all other inbound traffic on those ports.
 
 ---
 
 ### Phase 3 — Cloudflare DNS and TLS
 
-1. In the Cloudflare dashboard for `notnoise.us`, add an **A record**:
-   - Name: `crossword`
-   - IPv4: Hetzner VM IP
-   - Proxy status: **Proxied** (orange cloud on)
+1. Cloudflare dashboard for `notnoise.us` → **DNS → Add record**:
+   - Type: `A`, Name: `crossword`, IPv4: Hetzner VM IP, Proxy: **Proxied** (orange cloud on)
 
-2. Set **SSL/TLS mode** to **Full (strict)**.
+2. **SSL/TLS → Overview** → set mode to **Full (strict)**
+   - Cloudflare connects to the origin on port 443 and validates the certificate
 
 3. Generate a **Cloudflare origin certificate** (15-year, free):
-   - Cloudflare dashboard → **SSL/TLS → Origin Server → Create Certificate**
+   - **SSL/TLS → Origin Server → Create Certificate**
    - Install on the VM:
      ```bash
-     sudo mkdir -p /etc/ssl/cloudflare
-     # paste the cert and key into:
-     sudo nano /etc/ssl/cloudflare/crossword.pem   # certificate
-     sudo nano /etc/ssl/cloudflare/crossword.key   # private key
-     sudo chmod 600 /etc/ssl/cloudflare/crossword.key
+     mkdir -p /etc/ssl/cloudflare
+     nano /etc/ssl/cloudflare/crossword.pem   # paste certificate
+     nano /etc/ssl/cloudflare/crossword.key   # paste private key
+     chmod 600 /etc/ssl/cloudflare/crossword.key
      ```
 
 **nginx config** at `/etc/nginx/sites-available/crossword`:
@@ -210,51 +257,69 @@ server {
 ```
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/crossword /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
+ln -sf /etc/nginx/sites-available/crossword /etc/nginx/sites-enabled/crossword
+rm -f /etc/nginx/sites-enabled/default
+nginx -t && systemctl reload nginx
 ```
+
+> **Why port 443 and not 80?** With Cloudflare SSL/TLS in Full (strict) mode, Cloudflare connects to the origin on port 443. nginx must listen there and present a valid certificate (the Cloudflare origin cert).
 
 ---
 
 ### Phase 4 — Deploy the app
 
-**On the Hetzner VM:**
-
 ```bash
-git clone <repo-url> /opt/crossword
+git clone https://github.com/krishnar9/CrosswordSolver.git /opt/crossword
 cd /opt/crossword
-cp .env.example .env
-nano .env   # fill in all required values
 ```
 
-Key values for production `.env`:
+**Create persistent data directories with correct ownership before starting the container.** The app runs as uid 1000 inside the container; Docker auto-creates bind-mount directories as root, which the app cannot write to.
+
+```bash
+mkdir -p /opt/crossword/data /opt/crossword/uploads
+chown -R 1000:1000 /opt/crossword/data /opt/crossword/uploads
+```
+
+**Create the `.env` file:**
+
+```bash
+cp .env.example .env
+nano .env
+```
+
+Required values:
 
 ```env
 HTTPS_ONLY=true
+ALLOWED_EMAILS=user@gmail.com,other@gmail.com
+GOOGLE_CLIENT_ID=<from Google Cloud Console>
+GOOGLE_CLIENT_SECRET=<from Google Cloud Console>
+SECRET_KEY=<generate with: python3 -c "import secrets; print(secrets.token_hex(32))">
 OLLAMA_ENDPOINT=https://ollama.notnoise.us
+OLLAMA_MODEL=cross_qwen3_4b:latest
 OLLAMA_CF_CLIENT_ID=<from Cloudflare Access service token>
 OLLAMA_CF_CLIENT_SECRET=<from Cloudflare Access service token>
-```
-
-Generate a strong `SECRET_KEY`:
-
-```bash
-python3 -c "import secrets; print(secrets.token_hex(32))"
 ```
 
 **Start the app:**
 
 ```bash
 docker compose up -d --build
-docker compose logs -f   # verify startup, check for missing env vars
+docker compose logs -f   # verify: DB initialised, Ollama model loaded, startup complete
 ```
+
+> **Why `--forwarded-allow-ips *` in the Dockerfile?** Uvicorn must trust `X-Forwarded-Proto: https` from nginx to build correct OAuth redirect URIs. Docker proxies host requests through the bridge gateway (`172.17.0.1`), not `127.0.0.1`, so trusting only `127.0.0.1` silently discards the header and OAuth URLs are built as `http://`. The wildcard is safe because port 8000 is bound to `127.0.0.1` on the host and unreachable externally.
 
 ---
 
 ### Phase 5 — Google OAuth
 
-In Google Cloud Console → **APIs & Services → Credentials**, add
-`https://crossword.notnoise.us/auth/callback` as an authorized redirect URI on the existing OAuth client.
+1. Google Cloud Console → **APIs & Services → Credentials → your OAuth client → Authorized redirect URIs**
+   - Add: `https://crossword.notnoise.us/auth/callback`
+
+2. **APIs & Services → OAuth consent screen → Test users**
+   - Add every email address in `ALLOWED_EMAILS`
+   - While the app is in **Testing** status, Google restricts OAuth to listed test users only. The app can remain in Testing status indefinitely — Google's app verification process is not required for a private allowlisted app.
 
 ---
 
@@ -266,7 +331,7 @@ In Google Cloud Console → **APIs & Services → Credentials**, add
 # From /opt/crossword on the Hetzner VM
 docker compose up -d          # start (or restart if already running)
 docker compose down           # stop and remove container (data volumes untouched)
-docker compose restart        # restart container without rebuilding
+docker compose restart        # restart without rebuilding
 docker compose logs -f        # tail logs
 ```
 
@@ -278,17 +343,17 @@ git pull
 docker compose up -d --build   # rebuilds image, restarts container, zero data loss
 ```
 
-The `./data` and `./uploads` directories on the host are bind-mounted into the container and are never touched by a build or restart.
+`./data` and `./uploads` are bind-mounted host directories — never touched by a build or restart.
 
 ### Schema changes
 
-The database schema is initialised in `app/database.py`. Additive changes (new tables, new nullable columns via `ALTER TABLE`) are safe to deploy with a normal update — `init_db()` runs on every startup. Destructive changes require a manual migration step before starting the new container.
+The schema is initialised in `app/database.py` via `init_db()` on every startup. Additive changes (new tables, new nullable columns via `ALTER TABLE`) deploy safely with a normal update. Destructive schema changes require a manual migration step before starting the new container.
 
 ---
 
 ## Backup and Restore
 
-All persistent state lives in two host directories:
+All persistent state lives in two host directories on the Hetzner VM:
 
 | Directory | Contents | Priority |
 |---|---|---|
@@ -298,15 +363,11 @@ All persistent state lives in two host directories:
 ### Backup
 
 ```bash
-# From /opt/crossword on the Hetzner VM
+# On the Hetzner VM, from /opt/crossword
 tar -czf crossword-backup-$(date +%Y%m%d).tar.gz data/ uploads/
-```
 
-Copy off the VM:
-
-```bash
-# From your local machine
-scp user@<hetzner-ip>:/opt/crossword/crossword-backup-*.tar.gz ./backups/
+# Copy to local machine
+scp root@178.104.156.246:/opt/crossword/crossword-backup-*.tar.gz ./backups/
 ```
 
 ### Restore
@@ -315,7 +376,8 @@ scp user@<hetzner-ip>:/opt/crossword/crossword-backup-*.tar.gz ./backups/
 # On the Hetzner VM
 cd /opt/crossword
 docker compose down
-tar -xzf crossword-backup-YYYYMMDD.tar.gz   # overwrites data/ and uploads/
+tar -xzf crossword-backup-YYYYMMDD.tar.gz
+chown -R 1000:1000 data/ uploads/
 docker compose up -d
 ```
 
