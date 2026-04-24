@@ -39,7 +39,7 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     cursor = await db.execute(
-        "SELECT user_email FROM sessions WHERE session_id = ? AND deleted = 0",
+        "SELECT user_email FROM sessions WHERE session_id = ? AND deleted = 0 AND auth_invalidated = 0",
         (session_id,),
     )
     row = await cursor.fetchone()
@@ -87,9 +87,10 @@ async def auth_callback(
     if email not in allowed:
         raise HTTPException(status_code=403, detail="Access denied: email not authorised")
 
-    # One session per user — silently invalidate any existing active session.
+    # One active session per user — auth-invalidate any existing sessions.
+    # auth_invalidated sessions remain visible in puzzle history; only user-deleted sessions are hidden.
     await db.execute(
-        "UPDATE sessions SET deleted = 1 WHERE user_email = ? AND deleted = 0",
+        "UPDATE sessions SET auth_invalidated = 1 WHERE user_email = ? AND deleted = 0 AND auth_invalidated = 0",
         (email,),
     )
 

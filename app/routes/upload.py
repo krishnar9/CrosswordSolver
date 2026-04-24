@@ -177,5 +177,16 @@ async def resume_session(
     if not await cur.fetchone():
         raise HTTPException(status_code=404, detail="Session not found")
 
+    # Invalidate all other sessions, then re-activate this one.
+    await db.execute(
+        "UPDATE sessions SET auth_invalidated = 1 WHERE user_email = ? AND deleted = 0 AND auth_invalidated = 0",
+        (user_email,),
+    )
+    await db.execute(
+        "UPDATE sessions SET auth_invalidated = 0 WHERE session_id = ?",
+        (session_id,),
+    )
+    await db.commit()
+
     request.session["session_id"] = session_id
     return {"session_id": session_id}
