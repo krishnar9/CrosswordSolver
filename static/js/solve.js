@@ -1,4 +1,4 @@
-const BASE = window.location.pathname.startsWith('/crossword') ? '/crossword' : '';
+const BASE = '';
 
 // ── State ─────────────────────────────────────────────────────────────────
 let puzzle       = null;   // {rows, cols, grid, across, down}

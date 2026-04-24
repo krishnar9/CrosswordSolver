@@ -12,13 +12,22 @@ class OllamaClient:
     def __init__(self):
         self.model: str | None = None
 
+    def _headers(self) -> dict:
+        if settings.ollama_cf_client_id and settings.ollama_cf_client_secret:
+            return {
+                "CF-Access-Client-Id": settings.ollama_cf_client_id,
+                "CF-Access-Client-Secret": settings.ollama_cf_client_secret,
+            }
+        return {}
+
     def load_model(self):
-        """Verify the configured model is registered in the local Ollama registry.
+        """Verify the configured model is registered in the Ollama instance.
         Register once with: ollama create <MODEL_NAME> -f Modelfile"""
-        available = [m.model for m in ollama.list().models]
+        sync_client = ollama.Client(host=settings.ollama_endpoint, headers=self._headers())
+        available = [m.model for m in sync_client.list().models]
         if settings.ollama_model not in available:
             raise RuntimeError(
-                f"Model '{settings.ollama_model}' not found in local Ollama registry.\n"
+                f"Model '{settings.ollama_model}' not found in Ollama registry.\n"
                 f"Register it first with:\n"
                 f"  ollama create {settings.ollama_model} -f Modelfile"
             )
@@ -32,7 +41,7 @@ class OllamaClient:
         produces repeats or unparseable output — caller renders empty slots as greyed out.
         """
         query = f"Answer the crossword clue in exactly {length} letters: {clue} ({template})"
-        client = ollama.AsyncClient(host=settings.ollama_endpoint)
+        client = ollama.AsyncClient(host=settings.ollama_endpoint, headers=self._headers())
 
         tasks = [
             client.generate(

@@ -47,7 +47,7 @@ app.add_middleware(
     secret_key=settings.secret_key or "dev-only-insecure-key",
     session_cookie="cw_session",
     max_age=86400 * settings.session_retention_days,
-    https_only=False,
+    https_only=settings.https_only,
     same_site="lax",
 )
 

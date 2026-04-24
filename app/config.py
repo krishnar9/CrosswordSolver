@@ -16,6 +16,8 @@ class Settings:
         self.autosave_interval_seconds: int = int(os.getenv("AUTOSAVE_INTERVAL_SECONDS", "120"))
 
         self.ollama_endpoint: str = os.getenv("OLLAMA_ENDPOINT", "http://localhost:11434")
+        self.ollama_cf_client_id: str = os.getenv("OLLAMA_CF_CLIENT_ID", "")
+        self.ollama_cf_client_secret: str = os.getenv("OLLAMA_CF_CLIENT_SECRET", "")
         self.ollama_model: str = os.getenv("OLLAMA_MODEL", "")
         self.ollama_temperature: float = float(os.getenv("OLLAMA_TEMPERATURE", "0.3"))
         self.ollama_num_predict: int = int(os.getenv("OLLAMA_NUM_PREDICT", "12"))
@@ -27,6 +29,7 @@ class Settings:
         self.database_path: str = os.getenv("DATABASE_PATH", "./data/puzzle.db")
 
         self.secret_key: str = os.getenv("SECRET_KEY", "")
+        self.https_only: bool = os.getenv("HTTPS_ONLY", "false").lower() == "true"
 
     def validate(self) -> list[str]:
         """Return a list of missing required variable names."""

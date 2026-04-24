@@ -23,10 +23,14 @@ A browser-based crossword puzzle solver. The user uploads a PDF of a crossword p
 | `ALLOWED_EMAILS` | Comma-separated list of Google email addresses permitted to log in | (required) |
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID | (required) |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret | (required) |
+| `SECRET_KEY` | Secret used to sign browser session cookies | (required) |
+| `HTTPS_ONLY` | Set `true` in production to add the `Secure` flag to the session cookie | `false` |
 | `SESSION_RETENTION_DAYS` | Number of days to retain session log data | `30` |
 | `AUTOSAVE_INTERVAL_SECONDS` | How often (in seconds) the solve page auto-saves grid state | `120` |
 | `OLLAMA_ENDPOINT` | Base URL of the Ollama API | `http://localhost:11434` |
 | `OLLAMA_MODEL` | Name of the Ollama model to use for suggestions | (required) |
+| `OLLAMA_CF_CLIENT_ID` | Cloudflare Access service token client ID (production only) | `""` |
+| `OLLAMA_CF_CLIENT_SECRET` | Cloudflare Access service token secret (production only) | `""` |
 | `OLLAMA_TEMPERATURE` | Base sampling temperature for the Ollama model | `0.3` |
 | `OLLAMA_NUM_PREDICT` | Max tokens the model generates per request | `12` |
 | `OLLAMA_TOP_K` | Top-K sampling parameter | `40` |
@@ -34,7 +38,6 @@ A browser-based crossword puzzle solver. The user uploads a PDF of a crossword p
 | `OLLAMA_REPEAT_PENALTY` | Repetition penalty | `1.1` |
 | `UPLOAD_DIR` | Server filesystem path where uploaded PDFs are stored | `./uploads` |
 | `DATABASE_PATH` | Path to the SQLite3 database file | `./data/puzzle.db` |
-| `SECRET_KEY` | Secret used to sign browser session cookies | (required) |
 
 ---
 
@@ -218,13 +221,27 @@ The Solve page automatically syncs the current grid state to the session record 
 
 ## Deployment
 
-The application is deployed behind Nginx on the LAN under the `/crossword/` path prefix on port 80. Uvicorn runs on `127.0.0.1:8001` and is not directly reachable from the LAN.
+### Production architecture
 
-Nginx proxies `/crossword/` to uvicorn and also exposes `/static/` for the app's frontend assets (HTML pages use bare `/static/...` paths). Uvicorn is started with `--root-path /crossword` so that OAuth redirect URIs are constructed correctly.
+```
+Browser ──HTTPS──▶ Cloudflare edge (TLS termination)
+                        │
+                   A record: crossword.notnoise.us → Hetzner VM
+                        │
+                   Hetzner VM: nginx (port 80, Cloudflare origin cert)
+                        │
+                   Docker container: uvicorn on 127.0.0.1:8000
+```
 
-The Google OAuth authorized redirect URI must be registered as `https://<host>/crossword/auth/callback`. HTTPS is required by Google for non-localhost redirect URIs; a self-signed certificate is used for LAN deployment.
+**Ollama** runs on the developer's machine and is exposed to the Hetzner app via a Cloudflare Tunnel. The tunnel endpoint (`ollama.notnoise.us`) is protected by a Cloudflare Access service token; the app sends the token as HTTP headers with every Ollama request (`CF-Access-Client-Id`, `CF-Access-Client-Secret`).
 
-The frontend detects the deployment context at runtime: `BASE` is set to `'/crossword'` when `window.location.pathname` starts with `/crossword`, and to `''` otherwise. This allows the app to function correctly when accessed directly via uvicorn during development.
+The app runs at the root of `crossword.notnoise.us` — no path prefix. Uvicorn is started with `--proxy-headers --forwarded-allow-ips 127.0.0.1` so that OAuth redirect URIs are built correctly from the `X-Forwarded-Proto: https` header set by nginx.
+
+The Google OAuth authorized redirect URI must be registered as `https://crossword.notnoise.us/auth/callback`.
+
+### Local development
+
+Uvicorn is run directly on `localhost` without a proxy. The app is available at `http://127.0.0.1:<port>`. The Google OAuth authorized redirect URI for local development is `http://127.0.0.1:<port>/auth/callback`.
 
 ---
 

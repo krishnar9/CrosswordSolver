@@ -1,4 +1,4 @@
-const BASE = window.location.pathname.startsWith('/crossword') ? '/crossword' : '';
+const BASE = '';
 
 const fileInput  = document.getElementById('file-input');
 const btnUpload  = document.getElementById('btn-upload');
