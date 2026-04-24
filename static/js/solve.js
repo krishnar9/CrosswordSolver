@@ -18,6 +18,7 @@ let autosaveTimer   = null;
 const RECENT_MAX  = 30;
 let recentClues   = [];   // [{dir, num, snapshot}] — most-recent first
 let autoSuggest   = false;
+let autoEdit      = false;
 
 // ── DOM ───────────────────────────────────────────────────────────────────
 const gridEl        = document.getElementById('grid');
@@ -25,10 +26,13 @@ const clueTextEl    = document.getElementById('clue-text');
 const suggestionsEl = document.getElementById('suggestions');
 const btnSuggest    = document.getElementById('btn-suggest');
 const toastEl       = document.getElementById('toast');
-const btnSettings   = document.getElementById('btn-settings');
-const settingsMenu  = document.getElementById('settings-menu');
+const btnSettings    = document.getElementById('btn-settings');
+const settingsMenu   = document.getElementById('settings-menu');
 const optAutosuggest = document.getElementById('opt-autosuggest');
-let toastTimeout    = null;
+const optAutoEdit    = document.getElementById('opt-autoedit');
+const btnKeyboard    = document.getElementById('btn-keyboard');
+const kbInput        = document.getElementById('kb-input');
+let toastTimeout     = null;
 
 // ── Orientation warning (JS — more reliable than CSS media query) ─────────
 function updateOrientationWarning() {
@@ -43,6 +47,41 @@ function updateOrientationWarning() {
 window.addEventListener('resize', updateOrientationWarning);
 window.addEventListener('orientationchange', updateOrientationWarning);
 updateOrientationWarning();
+
+// ── Mobile keyboard ───────────────────────────────────────────────────────
+function focusKbInput() {
+    kbInput.value = '';
+    kbInput.focus();
+}
+
+// Backspace on an empty field: iOS fires keydown but may skip the input event
+kbInput.addEventListener('keydown', e => {
+    if (e.key === 'Backspace' && kbInput.value === '' && activeNum !== null) {
+        gridState[cursorR][cursorC] = null;
+        updateCellLetter(cursorR, cursorC);
+        retreatCursor();
+        e.preventDefault();
+    }
+});
+
+kbInput.addEventListener('input', e => {
+    if (activeNum === null) { kbInput.value = ''; return; }
+    if (e.inputType === 'deleteContentBackward') {
+        gridState[cursorR][cursorC] = null;
+        updateCellLetter(cursorR, cursorC);
+        retreatCursor();
+    } else if (e.data) {
+        const letter = e.data[0].toUpperCase();
+        if (/[A-Z]/.test(letter)) {
+            gridState[cursorR][cursorC] = letter;
+            updateCellLetter(cursorR, cursorC);
+            advanceCursor();
+        }
+    }
+    kbInput.value = '';
+});
+
+kbInput.addEventListener('paste', e => e.preventDefault());
 
 // ── Cell size recalc (called on load and orientation change) ───────────────
 function recalcCellSize() {
@@ -183,6 +222,7 @@ function clearActive() {
     clueTextEl.innerHTML = '';
     btnSuggest.disabled = true;
     clearSuggestions();
+    kbInput.blur();
 }
 
 // ── Clue run helpers ──────────────────────────────────────────────────────
@@ -228,6 +268,7 @@ function setActiveClue(dir, num, r, c) {
     } else {
         applyHighlights();
     }
+    if (autoEdit) focusKbInput();
 }
 
 // ── Click handlers ────────────────────────────────────────────────────────
@@ -274,6 +315,7 @@ function onCellTap(r, c) {
 // ── Keyboard ──────────────────────────────────────────────────────────────
 document.addEventListener('keydown', e => {
     if (activeNum === null) return;
+    if (document.activeElement === kbInput) return; // handled by kbInput events
 
     if (/^[a-zA-Z]$/.test(e.key) && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
@@ -477,6 +519,11 @@ optAutosuggest.addEventListener('click', () => {
     optAutosuggest.classList.toggle('active', autoSuggest);
 });
 
+optAutoEdit.addEventListener('click', () => {
+    autoEdit = !autoEdit;
+    optAutoEdit.classList.toggle('active', autoEdit);
+});
+
 document.addEventListener('click', () => settingsMenu.classList.remove('open'));
 
 // ── Exit ──────────────────────────────────────────────────────────────────
@@ -489,6 +536,12 @@ document.getElementById('btn-exit').addEventListener('click', async () => {
 document.getElementById('btn-next').addEventListener('click', () => {
     navigateClue(1);
     clueTextEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+});
+
+// ── Keyboard button (mobile) ───────────────────────────────────────────────
+btnKeyboard.addEventListener('click', () => {
+    if (activeNum === null) { showToast('Tap a clue first'); return; }
+    focusKbInput();
 });
 
 // ── Autosave ──────────────────────────────────────────────────────────────

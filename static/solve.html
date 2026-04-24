@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Crossword Solver</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=4">
+  <link rel="stylesheet" href="/static/css/style.css?v=5">
 </head>
 <body>
 
@@ -35,8 +35,12 @@
         <button class="settings-item" id="opt-autosuggest">
           <span class="check">✓</span>Auto-suggest
         </button>
+        <button class="settings-item mobile-only" id="opt-autoedit">
+          <span class="check">✓</span>Auto-edit
+        </button>
       </div>
     </div>
+    <button class="btn mobile-only" id="btn-keyboard" title="Keyboard">⌨</button>
   </div>
 
   <div id="suggestions"></div>
@@ -48,6 +52,11 @@
 
 <div id="toast"></div>
 
-<script src="/static/js/solve.js?v=4"></script>
+<!-- Hidden input used to trigger the mobile soft keyboard -->
+<input id="kb-input" type="text" inputmode="text"
+       autocomplete="off" autocorrect="off" autocapitalize="none"
+       spellcheck="false">
+
+<script src="/static/js/solve.js?v=5"></script>
 </body>
 </html>

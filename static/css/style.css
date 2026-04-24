@@ -344,6 +344,18 @@ header p {
     display: none;
 }
 
+/* ── Mobile keyboard input (hidden, used to trigger soft keyboard) ── */
+#kb-input {
+    position: fixed;
+    top: -999px;
+    left: -999px;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    font-size: 16px; /* prevent iOS zoom-on-focus */
+    pointer-events: none;
+}
+
 /* ── Mobile-only elements ─────────────────────────────────── */
 @media (min-width: 600px) {
     .mobile-only { display: none !important; }
