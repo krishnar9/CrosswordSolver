@@ -17,6 +17,11 @@ class Settings:
 
         self.ollama_endpoint: str = os.getenv("OLLAMA_ENDPOINT", "http://localhost:11434")
         self.ollama_model: str = os.getenv("OLLAMA_MODEL", "")
+        self.ollama_temperature: float = float(os.getenv("OLLAMA_TEMPERATURE", "0.3"))
+        self.ollama_num_predict: int = int(os.getenv("OLLAMA_NUM_PREDICT", "12"))
+        self.ollama_top_k: int = int(os.getenv("OLLAMA_TOP_K", "40"))
+        self.ollama_top_p: float = float(os.getenv("OLLAMA_TOP_P", "0.95"))
+        self.ollama_repeat_penalty: float = float(os.getenv("OLLAMA_REPEAT_PENALTY", "1.1"))
 
         self.upload_dir: str = os.getenv("UPLOAD_DIR", "./uploads")
         self.database_path: str = os.getenv("DATABASE_PATH", "./data/puzzle.db")

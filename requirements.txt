@@ -11,8 +11,11 @@ aiosqlite==0.22.1           # async SQLite3 access
 
 # Auth (Google OAuth 2.0)
 authlib==1.7.0
-httpx==0.28.1               # HTTP client (OAuth flows + Ollama API calls)
+httpx==0.28.1               # HTTP client (OAuth flows)
 itsdangerous==2.2.0         # session signing
+
+# LLM suggestions
+ollama==0.6.1               # Ollama Python client (calls local Ollama instance)
 
 # PDF parsing
 pymupdf==1.27.2.2           # fitz: extract clue text from PDF

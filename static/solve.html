@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Crossword Solver</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<div class="page">
+  <header>
+    <h1>Crossword Solver</h1>
+    <p id="puzzle-meta"></p>
+  </header>
+
+  <div id="grid-wrap">
+    <div id="grid"></div>
+  </div>
+
+  <div id="clue-text"></div>
+
+  <div id="action-bar">
+    <button class="btn" id="btn-save">Save</button>
+    <button class="btn" id="btn-suggest" disabled>Suggest</button>
+    <button class="btn" id="btn-exit">Exit</button>
+    <div class="settings-wrap">
+      <button class="btn" id="btn-settings" title="Settings">⚙</button>
+      <div class="settings-menu" id="settings-menu">
+        <button class="settings-item" id="opt-autosuggest">
+          <span class="check">✓</span>Auto-suggest
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="suggestions"></div>
+
+  <footer>
+    <p>&copy; 2026 Krishna Ratakonda</p>
+  </footer>
+</div>
+
+<div id="toast"></div>
+
+<script src="/static/js/solve.js"></script>
+</body>
+</html>

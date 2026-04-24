@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Crossword Solver</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<div class="page">
+  <header>
+    <h1>Crossword Solver</h1>
+    <p>Upload a PDF to begin</p>
+  </header>
+
+  <div class="upload-area">
+    <div class="section-title">New Puzzle</div>
+    <input type="file" id="file-input" accept="application/pdf">
+    <p class="hint">PDF only · max 1 MB · <a href="/help/pdf-format">format guidelines</a></p>
+    <button class="btn" id="btn-upload">Upload</button>
+    <p id="upload-error"></p>
+  </div>
+
+  <div>
+    <div class="section-title">Previous Puzzles</div>
+    <ul class="session-list" id="session-list"></ul>
+    <p id="no-sessions">No saved puzzles yet.</p>
+    <button class="btn" id="load-more">More</button>
+  </div>
+
+  <footer>
+    <p>&copy; 2026 Krishna Ratakonda</p>
+  </footer>
+</div>
+
+<div id="toast"></div>
+
+<script src="/static/js/upload.js"></script>
+</body>
+</html>

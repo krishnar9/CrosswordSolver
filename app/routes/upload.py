@@ -17,6 +17,21 @@ router = APIRouter(tags=["upload"])
 MAX_PDF_BYTES = 1 * 1024 * 1024  # 1 MB
 
 
+def _compute_progress(puzzle: dict, grid_state: list) -> tuple[int, int]:
+    """Return (answered_clues, total_clues). A clue is answered when every cell is filled."""
+    total = len(puzzle.get("across", {})) + len(puzzle.get("down", {}))
+    answered = 0
+    for clue_val in puzzle.get("across", {}).values():
+        r, c, length = clue_val[0][0], clue_val[0][1], clue_val[2]
+        if all(grid_state[r][c + i] is not None for i in range(length)):
+            answered += 1
+    for clue_val in puzzle.get("down", {}).values():
+        r, c, length = clue_val[0][0], clue_val[0][1], clue_val[2]
+        if all(grid_state[r + i][c] is not None for i in range(length)):
+            answered += 1
+    return answered, total
+
+
 @router.post("/upload", response_model=UploadResponse)
 async def upload_pdf(
     request: Request,
@@ -94,11 +109,11 @@ async def list_sessions(
         "SELECT COUNT(*) FROM sessions WHERE user_email = ? AND deleted = 0 AND parsed_puzzle IS NOT NULL",
         (user_email,),
     )
-    total = (await count_cur.fetchone())[0]
+    session_count = (await count_cur.fetchone())[0]
 
     cur = await db.execute(
         """
-        SELECT session_id, created_at, last_accessed_at, parsed_puzzle
+        SELECT session_id, created_at, last_accessed_at, parsed_puzzle, grid_state
         FROM sessions
         WHERE user_email = ? AND deleted = 0 AND parsed_puzzle IS NOT NULL
         ORDER BY created_at DESC
@@ -111,15 +126,19 @@ async def list_sessions(
     sessions = []
     for row in rows:
         puzzle = json.loads(row["parsed_puzzle"])
+        grid_state = json.loads(row["grid_state"]) if row["grid_state"] else []
+        answered, total_clues = _compute_progress(puzzle, grid_state)
         sessions.append(SessionSummary(
             session_id=row["session_id"],
             created_at=row["created_at"],
             last_accessed_at=row["last_accessed_at"],
             N=puzzle.get("rows"),
             deleted=False,
+            answered_clues=answered,
+            total_clues=total_clues,
         ))
 
-    return SessionListResponse(sessions=sessions, total=total)
+    return SessionListResponse(sessions=sessions, total=session_count)
 
 
 @router.delete("/sessions/{session_id}", status_code=204)

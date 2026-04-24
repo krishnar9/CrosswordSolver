@@ -105,7 +105,7 @@ async def auth_callback(
     await db.commit()
 
     request.session["session_id"] = session_id
-    return RedirectResponse(url="/")
+    return RedirectResponse(url=request.scope.get("root_path", "") + "/")
 
 
 @router.get("/logout")
@@ -122,7 +122,7 @@ async def logout(
         )
         await db.commit()
     request.session.clear()
-    return RedirectResponse(url="/auth/login")
+    return RedirectResponse(url=request.scope.get("root_path", "") + "/auth/login")
 
 
 @router.get("/me")

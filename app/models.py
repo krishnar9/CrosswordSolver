@@ -31,8 +31,10 @@ class SessionSummary(BaseModel):
     session_id: str
     created_at: datetime
     last_accessed_at: datetime
-    N: int | None = None   # None until a puzzle has been parsed for this session
+    N: int | None = None
     deleted: bool
+    answered_clues: int = 0
+    total_clues: int = 0
 
 
 class SessionListResponse(BaseModel):
@@ -57,6 +59,17 @@ class UploadResponse(BaseModel):
 # Each cell is an uppercase letter, or None for an empty white cell.
 # Black cells are not stored — they are derived from the clue data.
 GridState = list[list[str | None]]
+
+
+class PuzzleResponse(BaseModel):
+    session_id: str
+    rows: int
+    cols: int
+    grid: list[list[int]]
+    across: ClueDict
+    down: ClueDict
+    grid_state: GridState
+    autosave_interval: int
 
 
 class AutosaveRequest(BaseModel):
