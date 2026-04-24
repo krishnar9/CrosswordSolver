@@ -349,7 +349,7 @@ header p {
     .mobile-only { display: none !important; }
 }
 
-/* ── Landscape warning (phones only) ─────────────────────── */
+/* ── Landscape warning — shown/hidden by JS in solve.js ───── */
 #landscape-msg {
     display: none;
     position: fixed;
@@ -361,11 +361,6 @@ header p {
     padding: 32px;
     background: #fff;
     z-index: 200;
-}
-
-@media (orientation: landscape) and (max-height: 500px) {
-    #landscape-msg { display: flex; }
-    .page          { display: none; }
 }
 
 /* ── Footer ───────────────────────────────────────────────── */

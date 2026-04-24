@@ -30,6 +30,28 @@ const settingsMenu  = document.getElementById('settings-menu');
 const optAutosuggest = document.getElementById('opt-autosuggest');
 let toastTimeout    = null;
 
+// ── Orientation warning (JS — more reliable than CSS media query) ─────────
+function updateOrientationWarning() {
+    const type       = window.screen.orientation ? window.screen.orientation.type : '';
+    const isLandscape = type.startsWith('landscape') || window.innerWidth > window.innerHeight;
+    const isMobile   = Math.min(window.innerWidth, window.innerHeight) < 600;
+    const show = isLandscape && isMobile;
+    document.getElementById('landscape-msg').style.display = show ? 'flex' : 'none';
+    document.querySelector('.page').style.display          = show ? 'none' : '';
+    if (!show && puzzle) recalcCellSize();
+}
+window.addEventListener('resize', updateOrientationWarning);
+window.addEventListener('orientationchange', updateOrientationWarning);
+updateOrientationWarning();
+
+// ── Cell size recalc (called on load and orientation change) ───────────────
+function recalcCellSize() {
+    if (!puzzle) return;
+    const availPx = document.documentElement.clientWidth - 40;
+    const cellPx  = Math.max(18, Math.min(36, Math.floor(availPx / puzzle.cols)));
+    document.documentElement.style.setProperty('--cell', cellPx + 'px');
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────
 (async () => {
     let data;
@@ -75,10 +97,7 @@ function buildLookups() {
 function renderGrid() {
     const { rows, cols, grid } = puzzle;
 
-    // Scale cells to fit viewport width on narrow screens (mobile portrait)
-    const availPx = window.innerWidth - 40;
-    const cellPx  = Math.max(18, Math.min(36, Math.floor(availPx / cols)));
-    document.documentElement.style.setProperty('--cell', cellPx + 'px');
+    recalcCellSize();
 
     gridEl.style.gridTemplateColumns = `repeat(${cols}, var(--cell))`;
     gridEl.style.gridTemplateRows    = `repeat(${rows}, var(--cell))`;
@@ -467,7 +486,10 @@ document.getElementById('btn-exit').addEventListener('click', async () => {
 });
 
 // ── Next (mobile tab equivalent) ──────────────────────────────────────────
-document.getElementById('btn-next').addEventListener('click', () => navigateClue(1));
+document.getElementById('btn-next').addEventListener('click', () => {
+    navigateClue(1);
+    clueTextEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+});
 
 // ── Autosave ──────────────────────────────────────────────────────────────
 function startAutosave(intervalSecs) {
