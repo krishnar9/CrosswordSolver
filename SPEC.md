@@ -47,7 +47,7 @@ A browser-based crossword puzzle solver. The user uploads a PDF of a crossword p
 
 Entry to the application is protected by Google OAuth 2.0. On successful login, the authenticated user's email is checked against the `ALLOWED_EMAILS` list. If the email is not on the list, access is denied with an appropriate error message.
 
-**One session per user.** If the user logs in while another session for the same account is still active, the old session is invalidated silently server-side and the new session proceeds without warning.
+**One active session per user.** If the user logs in from a new device, all existing sessions for that account are marked `auth_invalidated = 1`. The new session is the only one accepted for API calls. Invalidated sessions remain visible in puzzle history — their grid state and puzzle data are intact and resumable. Resuming a historical session re-activates it and invalidates the currently active one.
 
 ### Session Table (SQLite3)
 
@@ -62,9 +62,12 @@ Each session is a row in the `sessions` table with the following fields:
 | `pdf_path` | Path on the server filesystem to the uploaded PDF |
 | `parsed_puzzle` | JSON blob of the parsed puzzle data — `{rows, cols, grid, across, down}` |
 | `grid_state` | JSON 2-D array (rows × cols) representing the partially filled grid — `null` for empty, uppercase letter for filled |
-| `deleted` | Boolean soft-delete flag (see File Upload Page) |
+| `deleted` | `1` when the user explicitly deleted the session from the history list |
+| `auth_invalidated` | `1` when the session was superseded by a new login from another device |
 
-A background cleanup job removes rows older than `SESSION_RETENTION_DAYS` days. Rows with `deleted = true` are subject to the same cleanup window — they are not kept permanently.
+**`deleted` vs `auth_invalidated`**: `deleted` is a user-initiated action and hides the entry from the history list immediately. `auth_invalidated` is set server-side when the user logs in from a new device; the session can no longer be used for API calls but its puzzle data remains visible in history. This preserves puzzle history across multi-device logins.
+
+A background cleanup job removes rows older than `SESSION_RETENTION_DAYS` days. Both `deleted` and `auth_invalidated` rows are subject to the same cleanup window.
 
 ---
 
@@ -146,9 +149,13 @@ The grid is rendered in black and white with a minimalist style.
 
 **Left-click** (desktop) / **tap** (mobile): if the clicked cell is covered by an across clue, highlight all cells of that across run in light grey/blue and display the across clue text below the grid. If no across clue covers this cell, do nothing.
 
-**Right-click** (desktop) / **long-press** (mobile): if the clicked cell is covered by a down clue, highlight all cells of that down run and display the down clue text below the grid. If no down clue covers this cell, do nothing.
+**Right-click** (desktop): if the clicked cell is covered by a down clue, highlight all cells of that down run and display the down clue text below the grid.
 
-**Clicking a black cell**: do nothing.
+**Second tap on the same cell** (mobile): toggles between the across and down clue covering that cell. First tap activates the across clue (if available); tapping the same cell again switches to the down clue; tapping again switches back to across. If only one direction covers the cell, repeated taps move the cursor within the run.
+
+**Clicking / tapping a black cell**: do nothing.
+
+**Landscape orientation** (mobile): if the device is in landscape orientation and is a mobile-sized screen, a full-screen message prompts the user to rotate to portrait. The solver UI is hidden until the device returns to portrait.
 
 When a clue run is highlighted (active), a cursor indicates the current data-entry cell within the run.
 
@@ -163,7 +170,7 @@ Switching to a different clue (by click, right-click, or Tab) clears any current
 | Letter (A–Z, a–z) | Write the letter (uppercased) into the current cell, overwriting any existing entry. Advance cursor to the next cell in the run. If already at the last cell, the keystroke is accepted but the cursor stays on the last cell. |
 | Arrow keys | Move cursor within the run in the appropriate direction. Moving in a direction not applicable to the active run (e.g., Up/Down in an Across clue) does nothing. Attempting to move past the start or end of the run does nothing. |
 | Backspace | Clear the current cell. Move cursor to the previous cell in the run. If already at the first cell, clear and stay. |
-| Tab | Advance to the next clue in a priority-sorted list. Only clues with **at least one unfilled cell** are eligible. Clues visited in the last 25 Tab navigations are skipped unless their answer has changed since they were last visited. Sort order: ① fewest unfilled cells (ascending) ② most filled cells (descending) ③ longest answer (descending) ④ random. The cursor is placed on the first cell of the selected clue. Wraps from last back to first. If all eligible clues are exhausted, Tab does nothing. |
+| Tab | Advance to the next clue in a priority-sorted list. Only clues with **at least one unfilled cell** are eligible. Clues visited in the last 30 Tab navigations are skipped unless their answer has changed since they were last visited. Sort order: ① fewest unfilled cells (ascending) ② most filled cells (descending) ③ longest answer (descending) ④ random. The cursor is placed on the first cell of the selected clue. Wraps from last back to first. If all eligible clues are exhausted, Tab does nothing. |
 | Shift+Tab | Move backwards through the same priority-sorted list. |
 
 Data is not case-sensitive; all input is stored and displayed as uppercase. Rebus (multi-letter) entries are not supported — each cell holds exactly one letter.
@@ -172,7 +179,7 @@ Data is not case-sensitive; all input is stored and displayed as uppercase. Rebu
 
 ## Solve Page — Action Buttons
 
-Four controls are displayed below the clue text area: **Save**, **Suggest**, **Exit**, and a **Settings** (⚙) icon.
+Controls displayed below the clue text area: **Save**, **Suggest**, **Exit**, **Next** (mobile only), **Settings** (⚙), and **Keyboard** ⌨ (mobile only).
 
 ### Save
 
@@ -203,15 +210,26 @@ The backend fires 4 concurrent Ollama requests with slightly staggered temperatu
 
 If the Ollama model fails to respond within **10 seconds**, display a non-blocking error notification. The user may continue solving without suggestions.
 
+### Next (mobile only)
+
+Advances to the next unfilled clue using the same priority sort as Tab, and scrolls the clue text into view. Equivalent to Tab on desktop. Only rendered on screens narrower than 600 px.
+
 ### Exit
 
 Autosaves the current grid state to the database, then navigates to the File Upload page. No confirmation dialog is shown — the puzzle can always be resumed later from the Previously Processed Puzzles list.
 
 ### Settings (⚙)
 
-A gear icon button at the end of the action bar. Clicking it opens a small dropdown menu with solver preferences. Currently one option:
+A gear icon button at the end of the action bar. Clicking it opens a small dropdown menu with solver preferences:
 
 - **Auto-suggest** (default: off): when enabled, switching to a new clue automatically triggers the Suggest flow. A checkmark is shown next to the option when it is active.
+- **Auto-edit** (default: off, mobile only): when enabled, the soft keyboard opens automatically whenever a clue is selected. Only shown on screens narrower than 600 px.
+
+### Keyboard ⌨ (mobile only)
+
+Opens the soft keyboard for the currently active clue. If no clue is selected, a toast prompts the user to tap a clue first. Useful when Auto-edit is off and the user wants to type without re-tapping a cell. Only rendered on screens narrower than 600 px.
+
+Input from the soft keyboard is routed through a hidden `<input>` element that receives focus. Letters are uppercased and written to the active cell; Backspace clears the current cell and retreats the cursor.
 
 ---
 

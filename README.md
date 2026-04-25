@@ -325,22 +325,30 @@ docker compose logs -f   # verify: DB initialised, Ollama model loaded, startup 
 
 ## Operations
 
-### Start / stop / restart
+### Deploy an update (from your dev machine)
 
 ```bash
-# From /opt/crossword on the Hetzner VM
-docker compose up -d          # start (or restart if already running)
-docker compose down           # stop and remove container (data volumes untouched)
-docker compose restart        # restart without rebuilding
-docker compose logs -f        # tail logs
+./deploy.sh
 ```
 
-### Update the app
+This pushes your local commits to GitHub, SSHs into Hetzner, runs `git pull`, and rebuilds and restarts the Docker container. One command covers the full cycle.
+
+### Start / stop the app (from your dev machine)
+
+```bash
+./crossword.sh start   # docker compose up -d on Hetzner
+./crossword.sh stop    # docker compose down on Hetzner
+```
+
+### Manual operations (from the Hetzner VM)
 
 ```bash
 cd /opt/crossword
-git pull
-docker compose up -d --build   # rebuilds image, restarts container, zero data loss
+docker compose up -d          # start
+docker compose down           # stop
+docker compose restart        # restart without rebuilding
+docker compose up -d --build  # rebuild image and restart
+docker compose logs -f        # tail logs
 ```
 
 `./data` and `./uploads` are bind-mounted host directories — never touched by a build or restart.
@@ -401,6 +409,8 @@ app/
 Dockerfile
 docker-compose.yml
 .env.example
+deploy.sh           — Push to GitHub + pull/rebuild on Hetzner (one command)
+crossword.sh        — Start / stop the app on Hetzner
 nginx/
   crossword.conf    — LAN nginx config (reference only; superseded by production setup)
 static/
