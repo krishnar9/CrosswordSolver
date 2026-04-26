@@ -1,6 +1,6 @@
 # CrosswordSolver
 
-A browser-based crossword puzzle solver. Upload a PDF of a crossword puzzle, fill in the grid interactively, and get LLM-backed suggestions for individual clues.
+A browser-based crossword puzzle solver. Upload a PDF of a crossword puzzle or fetch the daily NYT crossword directly, fill in the grid interactively, and get LLM-backed suggestions for individual clues. An optional timer tracks solve time and persists it with the puzzle.
 
 See [SPEC.md](SPEC.md) for the full application specification.
 
@@ -402,7 +402,7 @@ app/
   ollama_client.py  — Async Ollama suggestion client (supports CF Access headers)
   models.py         — Pydantic request/response models
   routes/
-    upload.py       — PDF upload, session list, resume, delete
+    upload.py       — PDF upload, NYT fetch, session list, title edit, resume, delete
     solve.py        — Puzzle fetch, autosave, suggest
   services/
     parser.py       — PDF → grid + clues parse routine

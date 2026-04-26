@@ -21,7 +21,7 @@ async def get_puzzle(
 ):
     session_id = request.session.get("session_id")
     cur = await db.execute(
-        "SELECT session_id, parsed_puzzle, grid_state FROM sessions WHERE session_id = ? AND deleted = 0",
+        "SELECT session_id, parsed_puzzle, grid_state, elapsed_seconds, puzzle_date FROM sessions WHERE session_id = ? AND deleted = 0",
         (session_id,),
     )
     row = await cur.fetchone()
@@ -46,6 +46,8 @@ async def get_puzzle(
         down=puzzle["down"],
         grid_state=grid_state,
         autosave_interval=settings.autosave_interval_seconds,
+        elapsed_seconds=row["elapsed_seconds"] or 0,
+        puzzle_date=row["puzzle_date"],
     )
 
 
@@ -58,10 +60,16 @@ async def autosave(
 ):
     session_id = request.session.get("session_id")
     now = datetime.now(timezone.utc).isoformat()
-    await db.execute(
-        "UPDATE sessions SET grid_state = ?, last_accessed_at = ? WHERE session_id = ?",
-        (json.dumps(body.grid_state), now, session_id),
-    )
+    if body.elapsed_seconds is not None:
+        await db.execute(
+            "UPDATE sessions SET grid_state = ?, elapsed_seconds = ?, last_accessed_at = ? WHERE session_id = ?",
+            (json.dumps(body.grid_state), body.elapsed_seconds, now, session_id),
+        )
+    else:
+        await db.execute(
+            "UPDATE sessions SET grid_state = ?, last_accessed_at = ? WHERE session_id = ?",
+            (json.dumps(body.grid_state), now, session_id),
+        )
     await db.commit()
 
 

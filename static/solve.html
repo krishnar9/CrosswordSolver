@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Crossword Solver</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=5">
+  <link rel="stylesheet" href="/static/css/style.css?v=6">
 </head>
 <body>
 
@@ -22,7 +22,10 @@
     <div id="grid"></div>
   </div>
 
-  <div id="clue-text"></div>
+  <div id="clue-row">
+    <div id="clue-text"></div>
+    <span id="timer-display" hidden>0:00</span>
+  </div>
 
   <div id="action-bar">
     <button class="btn" id="btn-save">Save</button>
@@ -38,8 +41,12 @@
         <button class="settings-item mobile-only" id="opt-autoedit">
           <span class="check">✓</span>Auto-edit
         </button>
+        <button class="settings-item" id="opt-timed">
+          <span class="check">✓</span>Timed
+        </button>
       </div>
     </div>
+    <button class="btn" id="btn-timer" title="Timer" hidden>⏱</button>
     <button class="btn mobile-only" id="btn-keyboard" title="Keyboard">⌨</button>
   </div>
 
@@ -57,6 +64,6 @@
        autocomplete="off" autocorrect="off" autocapitalize="none"
        spellcheck="false">
 
-<script src="/static/js/solve.js?v=5"></script>
+<script src="/static/js/solve.js?v=8"></script>
 </body>
 </html>

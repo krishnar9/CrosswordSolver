@@ -30,6 +30,7 @@ async def init_db() -> None:
             "ALTER TABLE sessions ADD COLUMN auth_invalidated INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE sessions ADD COLUMN puzzle_date TEXT",
             "ALTER TABLE sessions ADD COLUMN title TEXT",
+            "ALTER TABLE sessions ADD COLUMN elapsed_seconds INTEGER NOT NULL DEFAULT 0",
         ]:
             try:
                 await db.execute(migration)

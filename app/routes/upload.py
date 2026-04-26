@@ -200,7 +200,7 @@ async def list_sessions(
     cur = await db.execute(
         """
         SELECT session_id, created_at, last_accessed_at, parsed_puzzle, grid_state,
-               puzzle_date, title
+               puzzle_date, title, elapsed_seconds
         FROM sessions
         WHERE user_email = ? AND deleted = 0 AND parsed_puzzle IS NOT NULL
         ORDER BY created_at DESC
@@ -225,6 +225,7 @@ async def list_sessions(
             total_clues=total_clues,
             puzzle_date=row["puzzle_date"],
             title=row["title"],
+            elapsed_seconds=row["elapsed_seconds"] or 0,
         ))
 
     return SessionListResponse(sessions=sessions, total=session_count)

@@ -100,17 +100,35 @@ header p {
     pointer-events: none;
 }
 
-/* ── Clue text ────────────────────────────────────────────── */
-#clue-text {
-    min-height: 2.4em;
-    text-align: center;
-    font-size: .9rem;
-    color: #333;
+/* ── Clue row (clue text + timer display) ─────────────────── */
+#clue-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
     margin-bottom: 14px;
     padding: 0 8px;
 }
 
+#clue-text {
+    flex: 1;
+    min-height: 2.4em;
+    text-align: center;
+    font-size: .9rem;
+    color: #333;
+}
+
 #clue-text strong { font-weight: 600; }
+
+#timer-display {
+    font-size: .85rem;
+    font-variant-numeric: tabular-nums;
+    color: #555;
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding-top: 3px;
+    min-width: 34px;
+    text-align: right;
+}
 
 /* ── Action buttons ───────────────────────────────────────── */
 #action-bar {
@@ -143,6 +161,12 @@ header p {
     border-color: #ddd;
     color: #bbb;
     cursor: default;
+}
+
+#btn-timer.running {
+    background: #eef5ee;
+    border-color: #6a9e6a;
+    color: #2a6a2a;
 }
 
 /* ── Settings popover ─────────────────────────────────────── */
@@ -385,6 +409,7 @@ header p {
 
 .session-meta { color: #555; }
 .session-meta strong { color: #1a1a1a; }
+.session-time { color: #777; font-size: .8rem; }
 
 .session-actions { display: flex; gap: 8px; flex-shrink: 0; }
 

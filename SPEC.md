@@ -2,7 +2,7 @@
 
 ## Overview
 
-A browser-based crossword puzzle solver. The user uploads a PDF of a crossword puzzle, the backend parses it, and the user fills in the grid interactively. Progress is periodically auto-saved. An LLM-backed suggestion feature helps with individual clues.
+A browser-based crossword puzzle solver. The user uploads a PDF of a crossword puzzle or fetches the daily NYT crossword directly, the backend parses it, and the user fills in the grid interactively. Progress is periodically auto-saved. An optional timer tracks solve time. An LLM-backed suggestion feature helps with individual clues.
 
 ---
 
@@ -62,8 +62,11 @@ Each session is a row in the `sessions` table with the following fields:
 | `pdf_path` | Path on the server filesystem to the uploaded PDF |
 | `parsed_puzzle` | JSON blob of the parsed puzzle data — `{rows, cols, grid, across, down}` |
 | `grid_state` | JSON 2-D array (rows × cols) representing the partially filled grid — `null` for empty, uppercase letter for filled |
+| `puzzle_date` | Publication date (`YYYY-MM-DD`) for NYT puzzles; `NULL` for uploaded PDFs |
+| `title` | User-supplied label for uploaded PDFs; `NULL` by default; NYT puzzles have no editable title |
 | `deleted` | `1` when the user explicitly deleted the session from the history list |
 | `auth_invalidated` | `1` when the session was superseded by a new login from another device |
+| `elapsed_seconds` | Total seconds the user has run the timer for this puzzle (0 if the Timed feature was never used) |
 
 **`deleted` vs `auth_invalidated`**: `deleted` is a user-initiated action and hides the entry from the history list immediately. `auth_invalidated` is set server-side when the user logs in from a new device; the session can no longer be used for API calls but its puzzle data remains visible in history. This preserves puzzle history across multi-device logins.
 
@@ -75,7 +78,11 @@ A background cleanup job removes rows older than `SESSION_RETENTION_DAYS` days. 
 
 The first screen the user sees after login. It contains two sections:
 
-### Upload Section
+### New Puzzle Section
+
+Two source tabs are presented: **Upload PDF** (default) and **Fetch from NYT**.
+
+#### Upload PDF tab
 
 The upload controls are stacked vertically in this order:
 1. File picker (accepts PDF files only, 1 MB size limit)
@@ -86,15 +93,33 @@ On upload, the file is sent to the backend, saved to `UPLOAD_DIR` on the server 
 - **On parse failure**: display an appropriate error message and keep the user on this page.
 - **On parse success**: a new session row is created with the file path and parsed data, the browser session cookie is updated to point to it, and the user is redirected to the Solve page.
 
-### Previously Processed Puzzles Card
+#### Fetch from NYT tab
 
-Displays up to 10 of the user's past puzzle sessions in reverse-chronological order (newest first). Each entry shows: puzzle dimensions, upload date/time, and solve progress as `answered/total clues` (a clue counts as answered only when every cell in its run is filled).
+Fetches the daily NYT crossword PDF directly from the NYT API.
+
+Controls:
+1. **NYT-S cookie** input (password field). If a cookie is already saved in `localStorage`, a "Using saved cookie · change" line is shown instead of the input.
+2. **Date** picker (optional). Leave blank to fetch today's puzzle.
+3. **Fetch** button.
+
+On fetch, the backend calls the NYT crossword API (`/svc/crosswords/v6/puzzle/daily[/{date}].json`) to resolve the puzzle ID, then downloads the PDF from `/svc/crosswords/v2/puzzle/{id}.pdf`. On success the cookie is persisted to `localStorage` and the user is redirected to the Solve page. On a 401/403 response the saved cookie is cleared and the user is prompted to re-enter it. The `puzzle_date` field is populated from the NYT API's `publicationDate` field and shown in the session list.
+
+### Previously Processed Puzzles
+
+Displays up to 10 of the user's past puzzle sessions in reverse-chronological order (newest first). Each entry shows:
+
+- **Grid size** (e.g. 15×15)
+- **Label**:
+  - NYT puzzles: "NYT [Month] [Day], [Year]" (derived from `puzzle_date`; not editable)
+  - Uploaded PDFs: the user's custom title if one has been set, otherwise the upload date/time. The label is click-to-edit inline; saving an empty title reverts to the date/time fallback.
+- **Progress**: `answered/total clues` (a clue counts as answered only when every cell in its run is filled)
+- **Elapsed time** (⏱ M:SS): shown only when `elapsed_seconds > 0`
 
 A **More** button below the list loads the next 10 sessions. The button is hidden when all sessions fit on the first page and only appears when there are more sessions to load.
 
 Each entry has two actions:
 - **Resume**: navigates to the Solve page, restoring the saved grid state for that session.
-- **Delete**: sets `deleted = true` on the row. The entry disappears from the list immediately. The row is retained in the database until the retention window expires.
+- **Delete**: sets `deleted = 1` on the row. The entry disappears from the list immediately. The row is retained in the database until the retention window expires.
 
 ---
 
@@ -179,19 +204,17 @@ Data is not case-sensitive; all input is stored and displayed as uppercase. Rebu
 
 ## Solve Page — Action Buttons
 
-Controls displayed below the clue text area: **Save**, **Suggest**, **Exit**, **Next** (mobile only), **Settings** (⚙), and **Keyboard** ⌨ (mobile only).
+Controls displayed below the clue text area: **Save**, **Suggest**, **Exit**, **Next** (mobile only), **Settings** (⚙), **Timer** ⏱ (visible only when Timed is enabled), and **Keyboard** ⌨ (mobile only).
 
 ### Save
 
-Downloads the current grid state as a plain text file. The filename format is `CWPuz_YYYYMMDD_HHMMSS.txt`.
+Downloads the current grid state as a plain text file containing only the grid — no header.
 
-The file begins with a two-line header followed by a separator:
-```
-Crossword Solver — {rows}×{cols}
-{Month Day, Year}  {HH:MM:SS}
-──────────────────
-```
-Then the grid: `█` for black cells, `·` for unfilled white cells, uppercase letter for filled white cells.
+Each row is one line: `█` for black cells, `·` for unfilled white cells, uppercase letter for filled white cells.
+
+**Filename**:
+- NYT puzzles: `NYT {Month} {Day} {Year}.txt` — e.g. `NYT April 26 2026.txt`
+- Uploaded PDFs: `CWPuz_YYYYMMDD_HHMMSS.txt`
 
 If the download fails, display an error message to the user.
 
@@ -224,6 +247,18 @@ A gear icon button at the end of the action bar. Clicking it opens a small dropd
 
 - **Auto-suggest** (default: off): when enabled, switching to a new clue automatically triggers the Suggest flow. A checkmark is shown next to the option when it is active.
 - **Auto-edit** (default: off, mobile only): when enabled, the soft keyboard opens automatically whenever a clue is selected. Only shown on screens narrower than 600 px.
+- **Timed** (default: off): when enabled, a checkmark is shown next to the option and the Timer ⏱ button becomes visible in the action bar. Disabling Timed stops the timer if it is running.
+
+### Timer ⏱
+
+Only shown when the **Timed** setting is enabled. By default the timer is stopped.
+
+- A `M:SS` elapsed-time counter is displayed in the same row as the active clue text (right-aligned). It shows `0:00` when no time has been accumulated.
+- Clicking the Timer button toggles the timer on and off. The button has a green tint while the timer is running.
+- Elapsed seconds are included in every autosave and are also saved when the user exits the puzzle.
+- If `elapsed_seconds > 0`, the accumulated time is shown in the Previous Puzzles list on the upload page (⏱ M:SS), regardless of whether the Timed setting is currently active.
+- When resuming a saved puzzle the stored elapsed time is pre-loaded into the display; the timer starts stopped and must be manually started.
+- When the last empty white cell is filled the timer stops automatically and the Timer button is disabled — it can no longer be toggled.
 
 ### Keyboard ⌨ (mobile only)
 
@@ -235,7 +270,7 @@ Input from the soft keyboard is routed through a hidden `<input>` element that r
 
 ## Auto-Save
 
-The Solve page automatically syncs the current grid state to the session record in the database every `AUTOSAVE_INTERVAL_SECONDS` seconds. A sync also occurs immediately when the user clicks Exit or navigates away (via the browser `beforeunload` event — no browser prompt is shown; the save is silent).
+The Solve page automatically syncs the current grid state and elapsed timer seconds to the session record in the database every `AUTOSAVE_INTERVAL_SECONDS` seconds. A sync also occurs immediately when the user clicks Exit (the timer is stopped first) or navigates away (via the browser `beforeunload` event — no browser prompt is shown; the save is silent).
 
 ---
 

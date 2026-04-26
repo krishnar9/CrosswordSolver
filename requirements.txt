@@ -11,7 +11,7 @@ aiosqlite==0.22.1           # async SQLite3 access
 
 # Auth (Google OAuth 2.0)
 authlib==1.7.0
-httpx==0.28.1               # HTTP client (OAuth flows)
+httpx==0.28.1               # HTTP client (OAuth flows, NYT crossword fetch)
 itsdangerous==2.2.0         # session signing
 
 # LLM suggestions
@@ -23,7 +23,3 @@ pdf2image==1.17.0           # convert PDF page to image (requires poppler system
 opencv-python==4.13.0.92    # grid detection via Hough lines + contours
 pillow==12.2.0              # image handling
 numpy==2.4.4                # array operations for grid classification
-
-# previously listed, no longer the primary parser libs but kept for reference
-pdfplumber==0.11.9
-pypdf==6.10.2

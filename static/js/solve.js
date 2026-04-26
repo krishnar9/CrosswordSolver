@@ -1,7 +1,7 @@
 const BASE = '';
 
 // ── State ─────────────────────────────────────────────────────────────────
-let puzzle       = null;   // {rows, cols, grid, across, down}
+let puzzle       = null;   // {rows, cols, grid, across, down, puzzle_date}
 let gridState    = null;   // rows×cols: null | uppercase letter
 let acrossMap    = {};     // "r,c" → clue number (across)
 let downMap      = {};     // "r,c" → clue number (down)
@@ -20,16 +20,26 @@ let recentClues   = [];   // [{dir, num, snapshot}] — most-recent first
 let autoSuggest   = false;
 let autoEdit      = false;
 
+// ── Timer state ───────────────────────────────────────────────────────────
+let timedMode      = false;
+let timerRunning   = false;
+let timerLocked    = false;   // true once the grid is fully filled
+let elapsedSeconds = 0;
+let timerInterval  = null;
+
 // ── DOM ───────────────────────────────────────────────────────────────────
-const gridEl        = document.getElementById('grid');
-const clueTextEl    = document.getElementById('clue-text');
-const suggestionsEl = document.getElementById('suggestions');
-const btnSuggest    = document.getElementById('btn-suggest');
-const toastEl       = document.getElementById('toast');
+const gridEl         = document.getElementById('grid');
+const clueTextEl     = document.getElementById('clue-text');
+const timerDisplayEl = document.getElementById('timer-display');
+const suggestionsEl  = document.getElementById('suggestions');
+const btnSuggest     = document.getElementById('btn-suggest');
+const toastEl        = document.getElementById('toast');
 const btnSettings    = document.getElementById('btn-settings');
 const settingsMenu   = document.getElementById('settings-menu');
 const optAutosuggest = document.getElementById('opt-autosuggest');
 const optAutoEdit    = document.getElementById('opt-autoedit');
+const optTimed       = document.getElementById('opt-timed');
+const btnTimer       = document.getElementById('btn-timer');
 const btnKeyboard    = document.getElementById('btn-keyboard');
 const kbInput        = document.getElementById('kb-input');
 let toastTimeout     = null;
@@ -105,11 +115,14 @@ function recalcCellSize() {
         return;
     }
 
-    puzzle    = { rows: data.rows, cols: data.cols, grid: data.grid, across: data.across, down: data.down };
+    puzzle    = { rows: data.rows, cols: data.cols, grid: data.grid, across: data.across, down: data.down, puzzle_date: data.puzzle_date || null };
     gridState = data.grid_state;
 
     document.getElementById('puzzle-meta').textContent =
         `${data.rows}×${data.cols}`;
+
+    elapsedSeconds = data.elapsed_seconds || 0;
+    updateTimerDisplay();
 
     buildLookups();
     renderGrid();
@@ -192,6 +205,24 @@ function updateCellLetter(r, c) {
     if (!el) return;
     const span = el.querySelector('.cell-letter');
     if (span) span.textContent = gridState[r][c] || '';
+    checkGridComplete();
+}
+
+function isGridComplete() {
+    if (!puzzle || !gridState) return false;
+    for (let r = 0; r < puzzle.rows; r++) {
+        for (let c = 0; c < puzzle.cols; c++) {
+            if (puzzle.grid[r][c] !== -1 && !gridState[r][c]) return false;
+        }
+    }
+    return true;
+}
+
+function checkGridComplete() {
+    if (!timedMode || timerLocked || !isGridComplete()) return;
+    stopTimer();
+    timerLocked = true;
+    btnTimer.disabled = true;
 }
 
 // ── Highlight ─────────────────────────────────────────────────────────────
@@ -418,16 +449,6 @@ document.getElementById('btn-save').addEventListener('click', doSave);
 
 function doSave() {
     const { rows, cols, grid } = puzzle;
-    const now  = new Date();
-    const ts   = now.toISOString().replace(/\D/g,'').slice(0,14);
-    const dateStr = now.toLocaleDateString(undefined, { year:'numeric', month:'long', day:'numeric' });
-    const timeStr = now.toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit', second:'2-digit' });
-
-    const header = [
-        `Crossword Solver — ${rows}×${cols}`,
-        `${dateStr}  ${timeStr}`,
-        '─'.repeat(cols + 2),
-    ];
 
     const lines = [];
     for (let r = 0; r < rows; r++) {
@@ -437,8 +458,20 @@ function doSave() {
         }
         lines.push(line);
     }
-    const name = `CWPuz_${ts.slice(0,8)}_${ts.slice(8,14)}.txt`;
-    const blob = new Blob([[...header, ...lines].join('\n')], { type: 'text/plain' });
+
+    let name;
+    if (puzzle.puzzle_date) {
+        const d = new Date(puzzle.puzzle_date + 'T12:00:00');
+        const month = d.toLocaleDateString('en-US', { month: 'long' });
+        const day   = d.getDate();
+        const year  = d.getFullYear();
+        name = `NYT ${month} ${day} ${year}.txt`;
+    } else {
+        const ts = new Date().toISOString().replace(/\D/g,'').slice(0, 14);
+        name = `CWPuz_${ts.slice(0,8)}_${ts.slice(8,14)}.txt`;
+    }
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
     const url  = URL.createObjectURL(blob);
     const a    = Object.assign(document.createElement('a'), { href: url, download: name });
     document.body.appendChild(a);
@@ -524,10 +557,54 @@ optAutoEdit.addEventListener('click', () => {
     optAutoEdit.classList.toggle('active', autoEdit);
 });
 
+optTimed.addEventListener('click', () => {
+    timedMode = !timedMode;
+    optTimed.classList.toggle('active', timedMode);
+    btnTimer.hidden = !timedMode;
+    timerDisplayEl.hidden = !timedMode;
+    if (!timedMode) stopTimer();
+});
+
 document.addEventListener('click', () => settingsMenu.classList.remove('open'));
+
+// ── Timer ─────────────────────────────────────────────────────────────────
+function formatElapsed(secs) {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function updateTimerDisplay() {
+    timerDisplayEl.textContent = formatElapsed(elapsedSeconds);
+}
+
+function startTimer() {
+    if (timerRunning) return;
+    timerRunning = true;
+    btnTimer.classList.add('running');
+    timerInterval = setInterval(() => {
+        elapsedSeconds++;
+        updateTimerDisplay();
+    }, 1000);
+}
+
+function stopTimer() {
+    if (!timerRunning) return;
+    timerRunning = false;
+    btnTimer.classList.remove('running');
+    clearInterval(timerInterval);
+    timerInterval = null;
+}
+
+btnTimer.addEventListener('click', () => {
+    if (timerLocked) return;
+    if (timerRunning) stopTimer();
+    else startTimer();
+});
 
 // ── Exit ──────────────────────────────────────────────────────────────────
 document.getElementById('btn-exit').addEventListener('click', async () => {
+    stopTimer();
     await doAutosave();
     location.href = BASE + '/';
 });
@@ -555,7 +632,7 @@ async function doAutosave() {
         await fetch(BASE + '/puzzle/autosave', {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ grid_state: gridState }),
+            body:    JSON.stringify({ grid_state: gridState, elapsed_seconds: elapsedSeconds }),
         });
     } catch { /* silent */ }
 }

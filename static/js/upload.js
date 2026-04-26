@@ -28,12 +28,7 @@ let toastTimeout = null;
     const r = await fetch(BASE + '/auth/me');
     if (r.status === 401) { location.href = BASE + '/auth/login'; return; }
 
-    const savedCookie = localStorage.getItem('nyt_cookie');
-    if (savedCookie) {
-        selectTab('nyt');
-    } else {
-        selectTab('upload');
-    }
+    selectTab('upload');
     updateCookieUI();
 
     await loadSessions();
@@ -167,6 +162,13 @@ async function loadSessions(reset = false) {
     loadMore.style.display = offset < data.total ? 'block' : 'none';
 }
 
+function formatElapsed(secs) {
+    if (!secs) return null;
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 function formatPuzzleLabel(s) {
     if (s.puzzle_date) {
         const d = new Date(s.puzzle_date + 'T12:00:00');
@@ -214,6 +216,15 @@ function sessionItem(s) {
         labelSpan.title = 'Click to edit title';
         labelSpan.addEventListener('click', () => startEditTitle(s.session_id, labelSpan, s));
         meta.append(sizeSpan, sep1, labelSpan, sep2, progressSpan);
+    }
+
+    const timeStr = formatElapsed(s.elapsed_seconds);
+    if (timeStr) {
+        const sep3 = document.createTextNode(' · ');
+        const timeSpan = document.createElement('span');
+        timeSpan.className = 'session-time';
+        timeSpan.textContent = '⏱ ' + timeStr;
+        meta.append(sep3, timeSpan);
     }
 
     const actions = document.createElement('span');

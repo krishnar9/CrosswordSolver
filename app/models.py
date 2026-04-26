@@ -37,6 +37,7 @@ class SessionSummary(BaseModel):
     total_clues: int = 0
     puzzle_date: str | None = None
     title: str | None = None
+    elapsed_seconds: int = 0
 
 
 class SessionListResponse(BaseModel):
@@ -72,10 +73,13 @@ class PuzzleResponse(BaseModel):
     down: ClueDict
     grid_state: GridState
     autosave_interval: int
+    elapsed_seconds: int = 0
+    puzzle_date: str | None = None
 
 
 class AutosaveRequest(BaseModel):
     grid_state: GridState
+    elapsed_seconds: int | None = None
 
 
 # ---------------------------------------------------------------------------
