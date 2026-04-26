@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Crossword Solver</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=5">
+  <link rel="stylesheet" href="/static/css/style.css?v=6">
 </head>
 <body>
 
@@ -22,6 +22,15 @@
     <p id="upload-error"></p>
   </div>
 
+  <div class="upload-area">
+    <div class="section-title">Fetch from NYT</div>
+    <input type="password" id="nyt-cookie-input" class="text-input" autocomplete="new-password" placeholder="NYT-S cookie value">
+    <input type="date" id="nyt-date-input" class="text-input">
+    <p class="hint">Leave date blank for today's puzzle</p>
+    <button class="btn" id="btn-fetch-nyt">Fetch</button>
+    <p id="nyt-error"></p>
+  </div>
+
   <div>
     <div class="section-title">Previous Puzzles</div>
     <ul class="session-list" id="session-list"></ul>
@@ -36,6 +45,6 @@
 
 <div id="toast"></div>
 
-<script src="/static/js/upload.js?v=5"></script>
+<script src="/static/js/upload.js?v=6"></script>
 </body>
 </html>

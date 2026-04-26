@@ -88,3 +88,12 @@ class SuggestRequest(BaseModel):
 
 class SuggestResponse(BaseModel):
     suggestions: list[str]   # up to 4 items, each padded/truncated to answer_length
+
+
+# ---------------------------------------------------------------------------
+# NYT fetch
+# ---------------------------------------------------------------------------
+
+class FetchNYTRequest(BaseModel):
+    nyt_cookie: str
+    date: str | None = None  # "YYYY-MM-DD", defaults to today if omitted

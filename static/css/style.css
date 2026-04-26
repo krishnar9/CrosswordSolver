@@ -287,6 +287,28 @@ header p {
 
 #btn-upload { margin-top: 8px; }
 
+.text-input {
+    display: block;
+    width: 100%;
+    max-width: 380px;
+    font-size: .85rem;
+    font-family: var(--font);
+    padding: 5px 8px;
+    border: 1px solid #c0c0c0;
+    border-radius: 2px;
+    color: #1a1a1a;
+    margin-top: 6px;
+}
+
+#btn-fetch-nyt { margin-top: 8px; }
+
+#nyt-error {
+    margin-top: 10px;
+    font-size: .83rem;
+    color: #c00;
+    display: none;
+}
+
 .hint {
     font-size: .78rem;
     color: #888;

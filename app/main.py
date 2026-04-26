@@ -55,17 +55,19 @@ app.include_router(auth_router)
 app.include_router(upload_router)
 app.include_router(solve_router)
 
+_NO_CACHE = {"Cache-Control": "no-store"}
+
 # HTML page routes — JS handles auth redirects client-side
 @app.get("/")
 async def index_page():
-    return FileResponse("static/index.html")
+    return FileResponse("static/index.html", headers=_NO_CACHE)
 
 @app.get("/solve")
 async def solve_page():
-    return FileResponse("static/solve.html")
+    return FileResponse("static/solve.html", headers=_NO_CACHE)
 
 @app.get("/help/pdf-format")
 async def pdf_format_page():
-    return FileResponse("static/help/pdf-format.html")
+    return FileResponse("static/help/pdf-format.html", headers=_NO_CACHE)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")

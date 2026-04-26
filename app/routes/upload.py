@@ -1,15 +1,17 @@
 import json
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 
 import aiosqlite
+import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 
 from app.auth import get_current_user
 from app.config import settings
 from app.database import get_db
-from app.models import SessionListResponse, SessionSummary, UploadResponse
+from app.models import FetchNYTRequest, SessionListResponse, SessionSummary, UploadResponse
 from app.services.parser import parse_puzzle
 
 router = APIRouter(tags=["upload"])
@@ -32,27 +34,17 @@ def _compute_progress(puzzle: dict, grid_state: list) -> tuple[int, int]:
     return answered, total
 
 
-@router.post("/upload", response_model=UploadResponse)
-async def upload_pdf(
+async def _process_pdf_bytes(
+    data: bytes,
+    file_path: str,
+    user_email: str,
     request: Request,
-    file: UploadFile = File(...),
-    user_email: str = Depends(get_current_user),
-    db: aiosqlite.Connection = Depends(get_db),
-):
-    if file.content_type not in ("application/pdf", "application/octet-stream"):
-        raise HTTPException(status_code=400, detail="Only PDF files are accepted")
-
-    data = await file.read()
-    if len(data) > MAX_PDF_BYTES:
-        raise HTTPException(status_code=400, detail="File exceeds the 1 MB limit")
-
-    # Persist the upload
-    filename = f"{uuid.uuid4()}.pdf"
-    file_path = os.path.join(settings.upload_dir, filename)
+    db: aiosqlite.Connection,
+) -> UploadResponse:
+    """Save PDF bytes, parse, create session. Cleans up file on parse failure."""
     with open(file_path, "wb") as fh:
         fh.write(data)
 
-    # Parse
     result = parse_puzzle(file_path)
     if result is None:
         os.remove(file_path)
@@ -69,12 +61,10 @@ async def upload_pdf(
         "rows": rows,
         "cols": cols,
         "grid": grid,
-        # Keys are str in JSON; values stay as lists (tuples serialise identically)
         "across": {str(k): v for k, v in across.items()},
         "down":   {str(k): v for k, v in down.items()},
     })
 
-    # Empty grid state: None = unfilled white cell (black cells handled client-side)
     grid_state = json.dumps([[None] * cols for _ in range(rows)])
 
     session_id = str(uuid.uuid4())
@@ -91,10 +81,105 @@ async def upload_pdf(
     )
     await db.commit()
 
-    # Point the browser session at the new puzzle session
     request.session["session_id"] = session_id
-
     return UploadResponse(session_id=session_id, rows=rows, cols=cols)
+
+
+@router.post("/upload", response_model=UploadResponse)
+async def upload_pdf(
+    request: Request,
+    file: UploadFile = File(...),
+    user_email: str = Depends(get_current_user),
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    if file.content_type not in ("application/pdf", "application/octet-stream"):
+        raise HTTPException(status_code=400, detail="Only PDF files are accepted")
+
+    data = await file.read()
+    if len(data) > MAX_PDF_BYTES:
+        raise HTTPException(status_code=400, detail="File exceeds the 1 MB limit")
+
+    filename = f"{uuid.uuid4()}.pdf"
+    file_path = os.path.join(settings.upload_dir, filename)
+    return await _process_pdf_bytes(data, file_path, user_email, request, db)
+
+
+_NYT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json, */*",
+}
+
+
+@router.post("/fetch-nyt", response_model=UploadResponse)
+async def fetch_nyt(
+    body: FetchNYTRequest,
+    request: Request,
+    user_email: str = Depends(get_current_user),
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    date_str = body.date
+    if date_str is not None:
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_str):
+            raise HTTPException(status_code=400, detail="Date must be in YYYY-MM-DD format.")
+        meta_url = "https://www.nytimes.com/svc/crosswords/v6/puzzle/daily/{}.json".format(
+            date_str.replace("-", "/")
+        )
+    else:
+        meta_url = "https://www.nytimes.com/svc/crosswords/v6/puzzle/daily.json"
+
+    headers = {**_NYT_HEADERS, "Cookie": f"NYT-S={body.nyt_cookie}"}
+
+    async with httpx.AsyncClient() as client:
+        try:
+            meta_resp = await client.get(
+                meta_url, headers=headers, follow_redirects=True, timeout=15.0
+            )
+        except httpx.RequestError:
+            raise HTTPException(status_code=502, detail="Could not reach NYT.")
+
+        if meta_resp.status_code in (401, 403):
+            raise HTTPException(status_code=401, detail="NYT cookie is invalid or expired.")
+        if meta_resp.status_code == 404:
+            raise HTTPException(status_code=404, detail="No puzzle found for that date.")
+        if not meta_resp.is_success:
+            raise HTTPException(status_code=502, detail="Failed to fetch puzzle info from NYT.")
+
+        try:
+            meta = meta_resp.json()
+        except Exception:
+            raise HTTPException(status_code=502, detail="Unexpected response from NYT.")
+
+        results = meta.get("results", [])
+        if not results:
+            raise HTTPException(status_code=404, detail="No puzzle found for that date.")
+
+        puzzle_id = results[0].get("puzzle_id") or results[0].get("id")
+        if not puzzle_id:
+            raise HTTPException(status_code=502, detail="Could not determine puzzle ID from NYT response.")
+
+        pdf_url = f"https://www.nytimes.com/svc/crosswords/v2/puzzle/print/{puzzle_id}.pdf"
+        try:
+            pdf_resp = await client.get(
+                pdf_url, headers=headers, follow_redirects=True, timeout=30.0
+            )
+        except httpx.RequestError:
+            raise HTTPException(status_code=502, detail="Could not download PDF from NYT.")
+
+        if not pdf_resp.is_success:
+            raise HTTPException(status_code=502, detail="Failed to download PDF from NYT.")
+
+        data = pdf_resp.content
+
+    if len(data) > MAX_PDF_BYTES:
+        raise HTTPException(status_code=400, detail="PDF from NYT exceeds the 1 MB limit.")
+
+    filename = f"{uuid.uuid4()}.pdf"
+    file_path = os.path.join(settings.upload_dir, filename)
+    return await _process_pdf_bytes(data, file_path, user_email, request, db)
 
 
 @router.get("/sessions", response_model=SessionListResponse)

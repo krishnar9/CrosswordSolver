@@ -1,12 +1,16 @@
 const BASE = '';
 
-const fileInput  = document.getElementById('file-input');
-const btnUpload  = document.getElementById('btn-upload');
-const errorEl    = document.getElementById('upload-error');
-const listEl     = document.getElementById('session-list');
-const noSessions = document.getElementById('no-sessions');
-const loadMore   = document.getElementById('load-more');
-const toastEl    = document.getElementById('toast');
+const fileInput      = document.getElementById('file-input');
+const btnUpload      = document.getElementById('btn-upload');
+const errorEl        = document.getElementById('upload-error');
+const nytCookieInput = document.getElementById('nyt-cookie-input');
+const nytDateInput   = document.getElementById('nyt-date-input');
+const btnFetchNYT    = document.getElementById('btn-fetch-nyt');
+const nytErrorEl     = document.getElementById('nyt-error');
+const listEl         = document.getElementById('session-list');
+const noSessions     = document.getElementById('no-sessions');
+const loadMore       = document.getElementById('load-more');
+const toastEl        = document.getElementById('toast');
 
 let offset = 0;
 const LIMIT = 10;
@@ -16,6 +20,8 @@ let toastTimeout = null;
 (async () => {
     const r = await fetch(BASE + '/auth/me');
     if (r.status === 401) { location.href = BASE + '/auth/login'; return; }
+    const stored = localStorage.getItem('nyt_cookie');
+    if (stored) nytCookieInput.value = stored;
     await loadSessions();
 })();
 
@@ -52,6 +58,44 @@ btnUpload.addEventListener('click', async () => {
 function showError(msg) {
     errorEl.textContent = msg;
     errorEl.style.display = 'block';
+}
+
+// ── Fetch from NYT ────────────────────────────────────────────────────────
+btnFetchNYT.addEventListener('click', async () => {
+    nytErrorEl.style.display = 'none';
+    const cookie = nytCookieInput.value.trim();
+    if (!cookie) { showNYTError('Please enter your NYT-S cookie value.'); return; }
+
+    btnFetchNYT.disabled = true;
+    btnFetchNYT.textContent = 'Fetching…';
+
+    const body = { nyt_cookie: cookie };
+    if (nytDateInput.value) body.date = nytDateInput.value;
+
+    try {
+        const resp = await fetch(BASE + '/fetch-nyt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+            showNYTError(data.detail || 'Fetch failed.');
+        } else {
+            localStorage.setItem('nyt_cookie', cookie);
+            location.href = BASE + '/solve';
+        }
+    } catch {
+        showNYTError('Fetch failed. Please try again.');
+    } finally {
+        btnFetchNYT.disabled = false;
+        btnFetchNYT.textContent = 'Fetch';
+    }
+});
+
+function showNYTError(msg) {
+    nytErrorEl.textContent = msg;
+    nytErrorEl.style.display = 'block';
 }
 
 // ── Session list ──────────────────────────────────────────────────────────
