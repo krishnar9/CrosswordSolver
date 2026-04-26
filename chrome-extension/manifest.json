@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "NYT Crossword Filler",
+  "version": "1.0",
+  "description": "Fill NYT crossword from crossword solver output file",
+  "permissions": ["tabs", "scripting"],
+  "host_permissions": ["https://www.nytimes.com/crosswords/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "NYT Crossword Filler"
+  }
+}

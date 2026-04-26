@@ -15,6 +15,7 @@ rsync -az --delete \
   --exclude='uploads/' \
   --exclude='*.db' \
   --exclude='*.log' \
+  --exclude='chrome-extension/' \
   . "$HOST:$REMOTE_DIR"
 
 echo "==> Restarting containers on $HOST..."
