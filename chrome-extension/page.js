@@ -65,47 +65,89 @@ function parseGrid(text) {
 
 async function handleFill() {
   if (!parsedGrid) return;
-
   const nytTabs = await chrome.tabs.query({ url: 'https://www.nytimes.com/crosswords/game/*' });
-  if (nytTabs.length === 0) {
-    showStatus('No NYT crossword tab found. Open the NYT crossword puzzle in another tab first.', 'error');
-    return;
-  }
-
-  const tab = nytTabs.length === 1
-    ? nytTabs[0]
-    : nytTabs.sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0))[0];
-
-  showStatus('Filling crossword…', 'info');
-  document.getElementById('fillBtn').disabled = true;
+  if (!nytTabs.length) return;
+  const tab = nytTabs[0];
 
   try {
-    // Bring the crossword tab to the foreground before filling.
-    // Events dispatched in a background tab don't move document.activeElement,
-    // so the InputEvent that commits letters to React state would fire on body.
-    await chrome.tabs.update(tab.id, { active: true });
-    await chrome.windows.update(tab.windowId, { focused: true });
-    await new Promise(r => setTimeout(r, 400));
-
-    const [{ result }] = await chrome.scripting.executeScript({
+    await chrome.debugger.attach({ tabId: tab.id }, '1.3');
+    
+    // 1. Map the grid coordinates ONCE
+    const [{ result: gridMap }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      world: 'MAIN',
-      func: fillCrosswordInPage,
-      args: [parsedGrid],
+      func: () => {
+        const mapping = {};
+        document.querySelectorAll('[id^="cell-id-"]').forEach(el => {
+          const rect = el.getBoundingClientRect();
+          mapping[el.id.replace('cell-id-', '')] = {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2
+          };
+        });
+        return mapping;
+      }
     });
 
-    if (result.success) {
-      const msg = `Filled ${result.filled} cell${result.filled !== 1 ? 's' : ''} successfully.`;
-      const warn = result.warning ? ` (${result.warning})` : '';
-      showStatus(msg + warn, result.warning ? 'warning' : 'success');
-    } else {
-      showStatus(result.error, 'error');
+    const rows = parsedGrid.length;
+    const cols = parsedGrid[0].length;
+
+for (let r = 0; r < rows; r++) {
+  for (let c = 0; c < cols; c++) {
+    const index = r * cols + c;
+    const letter = parsedGrid[r][c];
+    const coords = gridMap[index];
+
+    if (letter && /^[A-Z]$/.test(letter) && coords) {
+      
+      // 1. CLICK: Explicitly move the focus. 
+      // We MUST await these to ensure the focus 'lands' before we type.
+      await sendClick(tab.id, coords.x, coords.y);
+      
+      // 2. DELAY: Tiny gap for the focus state to update (React needs this)
+      await new Promise(r => setTimeout(r, 15));
+
+      // 3. KEY SEQUENCE: Send Down, then Up. 
+      // Splitting these is more 'human' and prevents key-jamming.
+      await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchKeyEvent', {
+        type: 'rawKeyDown',
+        text: letter,
+        unmodifiedText: letter,
+        key: letter,
+        code: `Key${letter}`,
+        windowsVirtualKeyCode: letter.charCodeAt(0)
+      });
+
+      // The 'char' event is what actually puts the text in the box
+      await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchKeyEvent', {
+        type: 'char',
+        text: letter,
+      });
+
+      await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: letter,
+        code: `Key${letter}`
+      });
+
+      // 4. VERIFICATION DELAY:
+      // This is the 'Speed/Stability' sweet spot. 
+      // Start at 25ms. If it still skips, move to 35ms.
+      await new Promise(r => setTimeout(r, 25));
     }
-  } catch (err) {
-    showStatus(`Error: ${err.message}`, 'error');
-  } finally {
-    document.getElementById('fillBtn').disabled = false;
   }
+}
+    showStatus('Grid filled at warp speed!', 'success');
+  } finally {
+    chrome.debugger.detach({ tabId: tab.id });
+  }
+}
+
+async function sendClick(tabId, x, y) {
+  const p = { x, y, button: 'left', clickCount: 1 };
+  // We await the click because focus movement is slow, but we only do this 
+  // once per "word," not once per "letter."
+  await chrome.debugger.sendCommand({ tabId }, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...p });
+  await chrome.debugger.sendCommand({ tabId }, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...p });
 }
 
 // ---------------------------------------------------------------------------

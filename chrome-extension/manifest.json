@@ -3,7 +3,7 @@
   "name": "NYT Crossword Filler",
   "version": "1.0",
   "description": "Fill NYT crossword from crossword solver output file",
-  "permissions": ["tabs", "scripting"],
+  "permissions": ["tabs", "scripting", "debugger"],
   "host_permissions": ["https://www.nytimes.com/crosswords/*"],
   "background": {
     "service_worker": "background.js"
