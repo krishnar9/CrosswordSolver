@@ -141,6 +141,10 @@ async def fetch_nyt(
         except httpx.RequestError:
             raise HTTPException(status_code=502, detail="Could not reach NYT.")
 
+        print(f"[NYT fetch] URL: {meta_url}")
+        print(f"[NYT fetch] Status: {meta_resp.status_code}")
+        print(f"[NYT fetch] Body (first 500): {meta_resp.text[:500]}")
+
         if meta_resp.status_code in (401, 403):
             raise HTTPException(status_code=401, detail="NYT cookie is invalid or expired.")
         if meta_resp.status_code == 404:
