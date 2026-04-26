@@ -35,6 +35,8 @@ class SessionSummary(BaseModel):
     deleted: bool
     answered_clues: int = 0
     total_clues: int = 0
+    puzzle_date: str | None = None
+    title: str | None = None
 
 
 class SessionListResponse(BaseModel):

@@ -40,6 +40,7 @@ async def _process_pdf_bytes(
     user_email: str,
     request: Request,
     db: aiosqlite.Connection,
+    puzzle_date: str | None = None,
 ) -> UploadResponse:
     """Save PDF bytes, parse, create session. Cleans up file on parse failure."""
     with open(file_path, "wb") as fh:
@@ -74,10 +75,10 @@ async def _process_pdf_bytes(
         """
         INSERT INTO sessions
             (session_id, user_email, created_at, last_accessed_at,
-             pdf_path, parsed_puzzle, grid_state)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+             pdf_path, parsed_puzzle, grid_state, puzzle_date)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (session_id, user_email, now, now, file_path, puzzle_blob, grid_state),
+        (session_id, user_email, now, now, file_path, puzzle_blob, grid_state, puzzle_date),
     )
     await db.commit()
 
@@ -126,7 +127,7 @@ async def fetch_nyt(
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_str):
             raise HTTPException(status_code=400, detail="Date must be in YYYY-MM-DD format.")
         meta_url = "https://www.nytimes.com/svc/crosswords/v6/puzzle/daily/{}.json".format(
-            date_str.replace("-", "/")
+            date_str
         )
     else:
         meta_url = "https://www.nytimes.com/svc/crosswords/v6/puzzle/daily.json"
@@ -141,10 +142,6 @@ async def fetch_nyt(
         except httpx.RequestError:
             raise HTTPException(status_code=502, detail="Could not reach NYT.")
 
-        print(f"[NYT fetch] URL: {meta_url}")
-        print(f"[NYT fetch] Status: {meta_resp.status_code}")
-        print(f"[NYT fetch] Body (first 500): {meta_resp.text[:500]}")
-
         if meta_resp.status_code in (401, 403):
             raise HTTPException(status_code=401, detail="NYT cookie is invalid or expired.")
         if meta_resp.status_code == 404:
@@ -157,15 +154,14 @@ async def fetch_nyt(
         except Exception:
             raise HTTPException(status_code=502, detail="Unexpected response from NYT.")
 
-        results = meta.get("results", [])
-        if not results:
+        if not meta.get("body"):
             raise HTTPException(status_code=404, detail="No puzzle found for that date.")
 
-        puzzle_id = results[0].get("puzzle_id") or results[0].get("id")
+        puzzle_id = meta.get("id")
         if not puzzle_id:
             raise HTTPException(status_code=502, detail="Could not determine puzzle ID from NYT response.")
 
-        pdf_url = f"https://www.nytimes.com/svc/crosswords/v2/puzzle/print/{puzzle_id}.pdf"
+        pdf_url = f"https://www.nytimes.com/svc/crosswords/v2/puzzle/{puzzle_id}.pdf"
         try:
             pdf_resp = await client.get(
                 pdf_url, headers=headers, follow_redirects=True, timeout=30.0
@@ -177,13 +173,14 @@ async def fetch_nyt(
             raise HTTPException(status_code=502, detail="Failed to download PDF from NYT.")
 
         data = pdf_resp.content
+        puzzle_date = meta.get("publicationDate")
 
     if len(data) > MAX_PDF_BYTES:
         raise HTTPException(status_code=400, detail="PDF from NYT exceeds the 1 MB limit.")
 
     filename = f"{uuid.uuid4()}.pdf"
     file_path = os.path.join(settings.upload_dir, filename)
-    return await _process_pdf_bytes(data, file_path, user_email, request, db)
+    return await _process_pdf_bytes(data, file_path, user_email, request, db, puzzle_date=puzzle_date)
 
 
 @router.get("/sessions", response_model=SessionListResponse)
@@ -202,7 +199,8 @@ async def list_sessions(
 
     cur = await db.execute(
         """
-        SELECT session_id, created_at, last_accessed_at, parsed_puzzle, grid_state
+        SELECT session_id, created_at, last_accessed_at, parsed_puzzle, grid_state,
+               puzzle_date, title
         FROM sessions
         WHERE user_email = ? AND deleted = 0 AND parsed_puzzle IS NOT NULL
         ORDER BY created_at DESC
@@ -225,9 +223,26 @@ async def list_sessions(
             deleted=False,
             answered_clues=answered,
             total_clues=total_clues,
+            puzzle_date=row["puzzle_date"],
+            title=row["title"],
         ))
 
     return SessionListResponse(sessions=sessions, total=session_count)
+
+
+@router.patch("/sessions/{session_id}/title", status_code=204)
+async def update_session_title(
+    session_id: str,
+    body: dict,
+    user_email: str = Depends(get_current_user),
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    title = body.get("title", "").strip() or None
+    await db.execute(
+        "UPDATE sessions SET title = ? WHERE session_id = ? AND user_email = ? AND deleted = 0",
+        (title, session_id, user_email),
+    )
+    await db.commit()
 
 
 @router.delete("/sessions/{session_id}", status_code=204)

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Crossword Solver</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=6">
+  <link rel="stylesheet" href="/static/css/style.css?v=8">
 </head>
 <body>
 
@@ -16,19 +16,30 @@
 
   <div class="upload-area">
     <div class="section-title">New Puzzle</div>
-    <input type="file" id="file-input" accept="application/pdf">
-    <p class="hint">PDF only · max 1 MB · <a href="/help/pdf-format">format guidelines</a></p>
-    <button class="btn" id="btn-upload">Upload</button>
-    <p id="upload-error"></p>
-  </div>
+    <div class="source-tabs">
+      <button class="source-tab" id="tab-upload">Upload PDF</button>
+      <button class="source-tab" id="tab-nyt">Fetch from NYT</button>
+    </div>
 
-  <div class="upload-area">
-    <div class="section-title">Fetch from NYT</div>
-    <input type="password" id="nyt-cookie-input" class="text-input" autocomplete="new-password" placeholder="NYT-S cookie value">
-    <input type="date" id="nyt-date-input" class="text-input">
-    <p class="hint">Leave date blank for today's puzzle</p>
-    <button class="btn" id="btn-fetch-nyt">Fetch</button>
-    <p id="nyt-error"></p>
+    <div id="panel-upload" class="source-panel">
+      <input type="file" id="file-input" accept="application/pdf">
+      <p class="hint">PDF only · max 1 MB · <a href="/help/pdf-format">format guidelines</a></p>
+      <button class="btn" id="btn-upload">Upload</button>
+      <p id="upload-error"></p>
+    </div>
+
+    <div id="panel-nyt" class="source-panel">
+      <div id="nyt-cookie-row">
+        <input type="password" id="nyt-cookie-input" class="text-input" autocomplete="new-password" placeholder="NYT-S cookie value">
+      </div>
+      <p id="nyt-cookie-saved" class="hint" style="display:none">
+        Using saved cookie · <a href="#" id="btn-change-cookie">change</a>
+      </p>
+      <input type="date" id="nyt-date-input" class="text-input">
+      <p class="hint">Leave date blank for today's puzzle</p>
+      <button class="btn" id="btn-fetch-nyt">Fetch</button>
+      <p id="nyt-error"></p>
+    </div>
   </div>
 
   <div>
@@ -45,6 +56,6 @@
 
 <div id="toast"></div>
 
-<script src="/static/js/upload.js?v=6"></script>
+<script src="/static/js/upload.js?v=8"></script>
 </body>
 </html>

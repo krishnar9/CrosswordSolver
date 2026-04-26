@@ -26,14 +26,16 @@ async def init_db() -> None:
     os.makedirs(os.path.dirname(settings.database_path), exist_ok=True)
     async with aiosqlite.connect(settings.database_path) as db:
         await db.execute(CREATE_SESSIONS_TABLE)
-        # Migration: add auth_invalidated column if it doesn't exist yet
-        try:
-            await db.execute(
-                "ALTER TABLE sessions ADD COLUMN auth_invalidated INTEGER NOT NULL DEFAULT 0"
-            )
-            await db.commit()
-        except Exception:
-            pass  # column already exists
+        for migration in [
+            "ALTER TABLE sessions ADD COLUMN auth_invalidated INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE sessions ADD COLUMN puzzle_date TEXT",
+            "ALTER TABLE sessions ADD COLUMN title TEXT",
+        ]:
+            try:
+                await db.execute(migration)
+                await db.commit()
+            except Exception:
+                pass  # column already exists
         await db.commit()
 
 

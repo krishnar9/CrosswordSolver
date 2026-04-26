@@ -268,6 +268,32 @@ header p {
 #toast.show { opacity: 1; }
 
 /* ── Upload page ──────────────────────────────────────────── */
+.source-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 18px;
+}
+
+.source-tab {
+    padding: 6px 14px;
+    font-size: .82rem;
+    font-family: var(--font);
+    font-weight: 500;
+    border: 1px solid #c0c0c0;
+    border-radius: 2px;
+    background: #fff;
+    color: #666;
+    cursor: pointer;
+}
+
+.source-tab.active {
+    background: var(--clr-btn);
+    color: #fff;
+    border-color: var(--clr-btn);
+}
+
+.source-panel { display: none; }
+
 .section-title {
     font-size: .8rem;
     font-weight: 600;
@@ -316,6 +342,27 @@ header p {
 }
 
 .hint a { color: #555; }
+
+.session-label.editable {
+    cursor: text;
+    border-bottom: 1px dotted #bbb;
+}
+
+.session-label.editable:hover {
+    border-bottom-color: #888;
+}
+
+.title-input {
+    font-size: inherit;
+    font-family: var(--font);
+    border: none;
+    border-bottom: 1px solid #888;
+    outline: none;
+    padding: 0;
+    width: 180px;
+    background: transparent;
+    color: #1a1a1a;
+}
 
 #upload-error {
     margin-top: 10px;
